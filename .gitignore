@@ -1,0 +1,5 @@
+.env
+__pycache__/
+telespy.session
+online.csv
+telespy.log
