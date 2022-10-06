@@ -3,3 +3,4 @@ telespy.session
 online.csv
 telespy.log
 telespy.session-journal
+telespy/.env
