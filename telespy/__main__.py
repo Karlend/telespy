@@ -46,6 +46,7 @@ def main(argv: list[str]):
 		secret_values={
 			config["TRACK_APP_ID"]: "TRACK_APP_ID",
 			config["TRACK_APP_HASH"]: "TRACK_APP_HASH",
+			config["TRACK_BOT_TOKEN"]: "TRACK_BOT_TOKEN"
 		},  # type: ignore
 	)
 
@@ -53,9 +54,10 @@ def main(argv: list[str]):
 
 	assert isinstance(config["TRACK_APP_ID"], int), "TRACK_APP_ID must be an int"  # nosec
 	assert isinstance(config["TRACK_APP_HASH"], str), "TRACK_APP_HASH must be a str"  # nosec
+	assert isinstance(config["TRACK_BOT_TOKEN"], str), "TRACK_BOT_TOKEN must be a str"  # nosec
 	assert isinstance(  # nosec
-		config["TRACK_USERS"], list
-	), "TRACK_USERS must be a list"
+		config["TRACK_ADMINS"], list
+	), "TRACK_ADMINS must be a list"
 	return main_entry_point()
 
 if __name__ == "__main__":

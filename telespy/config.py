@@ -2,6 +2,7 @@
 import os
 import json
 from types import GenericAlias, NoneType, UnionType
+from os import path
 from typing import Type, TypeVar
 from telespy.utils import Singleton
 
@@ -15,7 +16,10 @@ T = TypeVar("T")
 REQUIRED_CONFIG = {
 	"TRACK_APP_ID": int,
 	"TRACK_APP_HASH": str,
-	"TRACK_USERS": list[str],
+	"TRACK_BOT_TOKEN": str,
+	"TRACK_ADMINS": list[int],
+	"TRACK_LOG_FILE": bool,
+	"TRACK_LOG_PM": bool
 }
 
 
@@ -79,6 +83,7 @@ class Config(Singleton):
 
 	def __init__(self: "Config") -> None:
 		self.config = {}
+		self.load_users()
 
 	def set_config(self: "Config", config: ParseableMap) -> None:
 		"""
@@ -99,3 +104,25 @@ class Config(Singleton):
 		Returns the value of the key.
 		"""
 		return self.get(key)
+
+	def load_users(self: "Config"):
+		if path.exists("users.json"):
+			with open("users.json", "r") as f:
+				self.users = json.loads(f.read())
+
+	def save_users(self: "Config"):
+		with open("users.json", "w") as f:
+			f.write(json.dumps(self.users))
+
+	def get_users(self: "Config"):
+		return self.users
+
+	def add_user(self: "Config", info):
+		self.users.append(info)
+		self.save_users()
+		return self.users
+
+	def del_user(self: "Config", info):
+		self.users.remove(info)
+		self.save_users()
+		return self.users

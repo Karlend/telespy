@@ -4,3 +4,7 @@ online.csv
 telespy.log
 telespy.session-journal
 telespy/.env
+telespy_bot.session
+telespybot.session
+.DS_Store
+users.json
