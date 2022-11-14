@@ -1,6 +1,5 @@
 import shlex
 from telethon.tl.types import Message, PeerUser, User
-from telethon.tl.custom import Button
 
 class SingletonMeta(type):
 	"""Metaclass for singletons"""
