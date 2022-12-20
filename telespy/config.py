@@ -83,6 +83,7 @@ class Config(Singleton):
 
 	def __init__(self: "Config") -> None:
 		self.config = {}
+		self.users = {}
 		self.load_users()
 
 	def set_config(self: "Config", config: ParseableMap) -> None:
