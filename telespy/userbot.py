@@ -21,7 +21,7 @@ class UserDispatcher:
 		self: "UserDispatcher", client: TelegramClient
 	):
 		self.client = client
-		self.targets = {}
+		self.targets = []
 		self._me = None
 		asyncio.ensure_future(self.async_init())
 
