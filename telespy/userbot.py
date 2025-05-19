@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import logging
 import asyncio
 import json
 import os
 import time
-from typing import Dict
+from typing import Dict, TYPE_CHECKING
 
 from telethon import TelegramClient, events, functions
 from telethon.sessions import StringSession
@@ -11,7 +13,10 @@ from telethon.tl.types import InputPhoneContact, UserStatusRecently
 
 from telespy.config import Config
 from telespy.tracked import TrackedUser
-from telespy.dispatcher import bot
+
+if TYPE_CHECKING:  # pragma: no cover - for type hints only
+    from telespy.dispatcher import BotDispatcher
+
 
 logger = logging.getLogger(__name__)
 config = Config()
@@ -20,9 +25,15 @@ config = Config()
 class UserDispatcher:
     """User dispatcher handling accounts for a single userbot."""
 
-    def __init__(self: "UserDispatcher", client: TelegramClient, name: str) -> None:
+    def __init__(
+        self: "UserDispatcher",
+        client: TelegramClient,
+        name: str,
+        bot: "BotDispatcher",
+    ) -> None:
         self.client = client
         self.session_name = name
+        self.bot = bot
         self.targets: Dict[int, TrackedUser] = {}
         self.last_used = 0.0
         self._me = None
@@ -93,7 +104,7 @@ class UserDispatcher:
             return True, user
         if not info.status or isinstance(info.status, UserStatusRecently):
             return False, "Онлайн скрыт"
-        user = TrackedUser(info)
+        user = TrackedUser(info, self.bot)
         user.search_info = search_info
         user.userbot = self
         user.add_watcher(watcher)
@@ -106,11 +117,15 @@ class UserDispatcher:
 class UserbotManager:
     """Manage multiple userbot instances."""
 
-    def __init__(self: "UserbotManager") -> None:
+    def __init__(
+        self: "UserbotManager",
+        loop: asyncio.AbstractEventLoop,
+        bot: "BotDispatcher",
+    ) -> None:
         self.bots: Dict[str, UserDispatcher] = {}
         self.sessions: Dict[str, str] = {}
+        self.bot = bot
         self.load_sessions()
-        loop = bot.client.loop
         loop.create_task(self.async_init())
         
     async def async_init(self: "UserbotManager") -> None:
@@ -131,9 +146,13 @@ class UserbotManager:
     async def add_userbot(self: "UserbotManager", name: str, session: str, save: bool = True) -> bool:
         if name in self.bots:
             return False
-        client = TelegramClient(StringSession(session), config["TRACK_APP_ID"], config["TRACK_APP_HASH"])
+        client = TelegramClient(
+            StringSession(session),
+            config["TRACK_APP_ID"],
+            config["TRACK_APP_HASH"],
+        )
         await client.start()
-        ub = UserDispatcher(client, name)
+        ub = UserDispatcher(client, name, self.bot)
         await ub.async_init()
         ub.setup_handlers()
         self.bots[name] = ub
@@ -200,7 +219,7 @@ class UserbotManager:
         if not entity.status or isinstance(entity.status, UserStatusRecently):
             return False, "Онлайн скрыт"
 
-        user = TrackedUser(entity)
+        user = TrackedUser(entity, chosen_bot)
         user.search_info = info
         user.userbot = chosen_bot
         user.add_watcher(watcher)
@@ -214,7 +233,7 @@ class UserbotManager:
         for owner in list(users.keys()):  # Create a copy of the keys to avoid modification issues
             infos = users.get(owner, [])
             for info in infos:
-                ok, user = await userbot_manager.track(info, int(owner))
+                ok, user = await self.track(info, int(owner))
                 if not ok or not hasattr(user, "id"):
                     logger.exception(f"Invalid user - {info} | {user}")
                     config.del_watch(int(owner), info)  # Modify the dictionary safely
@@ -223,6 +242,3 @@ class UserbotManager:
                 await asyncio.sleep(1)
         logger.info("Loaded all users")
 
-
-userbot_manager = UserbotManager()
-bot.userbot_manager = userbot_manager
