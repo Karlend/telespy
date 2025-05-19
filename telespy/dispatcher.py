@@ -360,7 +360,7 @@ class BotDispatcher:
                 await query.edit(text, buttons=buttons)
 
 
-    def _parse_command(self: "BotDispatcher", message: Message) -> list[str]:
+def _parse_command(self: "BotDispatcher", message: Message) -> list[str]:
         splitted = parse_cmd(message)
         if splitted[0][0] != "/":
             return []
@@ -373,9 +373,3 @@ class BotDispatcher:
                 return []
             splitted[0] = cmd
         return splitted
-
-client = TelegramClient('telespybot', config["TRACK_APP_ID"], config["TRACK_APP_HASH"])
-client.start(bot_token=config["TRACK_BOT_TOKEN"])
-
-bot = BotDispatcher(client)
-bot.setup_handlers()

@@ -1,12 +1,17 @@
 """Tracked users and sessions."""
 
+from __future__ import annotations
+
 import logging
 from os import path
 from datetime import datetime
 from telethon.tl.types import UserStatusOnline
 from telespy.config import Config
-from telespy.dispatcher import bot
 from telespy.globals import DATETIME_FORMAT
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from telespy.dispatcher import BotDispatcher
 
 logger = logging.getLogger(__name__)
 config = Config()
@@ -42,7 +47,8 @@ class TrackedUser:
     phone: str | None
     last_online: datetime | None
 
-    def __init__(self, client) -> None:
+    def __init__(self, client, bot: "BotDispatcher") -> None:
+        self.bot = bot
         self.id = client.id
         self.first_name = client.first_name
         self.last_name = client.last_name or ""
@@ -83,7 +89,7 @@ class TrackedUser:
         text = f"{now.strftime(DATETIME_FORMAT)}: {self.name} went online."
         logger.info(text)
         if config["TRACK_LOG_PM"]:
-            bot.notify_watchers(self.watchers, f"{self.link} went online")
+            self.bot.notify_watchers(self.watchers, f"{self.link} went online")
 
     def offline(self) -> None:
         if not self.is_online:
@@ -96,7 +102,10 @@ class TrackedUser:
         append_file(f"{self.name}, {stamp}, {session_time}")
         text = f"{stamp}: {self.name} went offline. Session time: {session_time}"
         if config["TRACK_LOG_PM"]:
-            bot.notify_watchers(self.watchers, f"{self.link} went offline. Session time: {session_time}")
+            self.bot.notify_watchers(
+                self.watchers,
+                f"{self.link} went offline. Session time: {session_time}",
+            )
         logger.info(text)
 
     async def remove(self) -> None:
