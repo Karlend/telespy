@@ -6,11 +6,11 @@ from datetime import datetime
 from telethon.tl.types import UserStatusOnline
 from telespy.config import Config
 from telespy.dispatcher import bot
+from telespy.globals import DATETIME_FORMAT
 
 logger = logging.getLogger(__name__)
 config = Config()
 
-DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 FILE_NAME = "online.csv"
 
 

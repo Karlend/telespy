@@ -9,7 +9,7 @@ from telethon.tl.types import (  # type: ignore
 )
 from telethon.tl.custom import Button
 from telespy.config import Config
-from telespy.tracked import DATETIME_FORMAT
+from telespy.globals import DATETIME_FORMAT
 from types import SimpleNamespace
 from telespy.utils import is_admin, is_private_message, parse_cmd
 
