@@ -2,7 +2,8 @@
 
 import logging
 import asyncio
-from telethon import TelegramClient, events
+from telethon import TelegramClient, events, functions, types
+from telethon.sessions import StringSession
 from telethon.tl.types import (  # type: ignore
     Message,
 )
@@ -34,6 +35,7 @@ class BotDispatcher:
         self.client = client
         self._me = None
         self.userbot_manager = None
+        self.pending_userbots: dict[int, dict[str, any]] = {}
         asyncio.ensure_future(self.async_init())
         
     async def async_init(self: "BotDispatcher"):
@@ -41,6 +43,23 @@ class BotDispatcher:
         Initialize the dispatcher.
         """
         self._me = await self.client.get_me()
+        await self._set_commands()
+
+    async def _set_commands(self: "BotDispatcher") -> None:
+        commands_list = [
+            types.BotCommand(command="start", description="🙌 Меню"),
+            types.BotCommand(command="add", description="➕ Отслеживать"),
+            types.BotCommand(command="ubadd", description="🤖 Добавить юзербот"),
+            types.BotCommand(command="ubremove", description="❌ Удалить юзербот"),
+            types.BotCommand(command="ublist", description="📄 Список юзерботов"),
+        ]
+        await self.client(
+            functions.bots.SetBotCommandsRequest(
+                scope=types.BotCommandScopeDefault(),
+                lang_code="",
+                commands=commands_list,
+            )
+        )
 
     def notify_admins(self: "BotDispatcher", text: str) -> None:
         for admin in config["TRACK_ADMINS"]:
@@ -103,13 +122,14 @@ class BotDispatcher:
         if not is_admin(message.sender_id):
             return
         try:
-            _, name, session = message.text.split(" ", 2)
+            _, phone = message.text.split(" ", 1)
         except ValueError:
-            return await message.reply("Usage: /ubadd <name> <session>")
-        if self.userbot_manager.add_userbot(name, session):
-            await message.reply(f"Userbot {name} added")
-        else:
-            await message.reply("Already running")
+            return await message.reply("Usage: /ubadd &lt;phone&gt;")
+        client = TelegramClient(StringSession(), config["TRACK_APP_ID"], config["TRACK_APP_HASH"])
+        await client.connect()
+        code = await client.send_code_request(phone)
+        self.pending_userbots[message.sender_id] = {"client": client, "phone": phone, "code_hash": code.phone_code_hash}
+        await message.reply("📨 Код отправлен, введите его следующим сообщением")
 
     async def _ubremove_handler(self: "BotDispatcher", message: Message):
         if not is_admin(message.sender_id):
@@ -117,7 +137,7 @@ class BotDispatcher:
         try:
             name = message.text.split(" ", 1)[1]
         except IndexError:
-            return await message.reply("Session name required")
+            return await message.reply("Userbot id required")
         if self.userbot_manager.remove_userbot(name):
             await message.reply(f"Userbot {name} removed")
         else:
@@ -128,6 +148,27 @@ class BotDispatcher:
             return
         names = ", ".join(self.userbot_manager.bots.keys()) or "none"
         await message.reply(f"Running userbots: {names}")
+
+    async def _ubcode_handler(self: "BotDispatcher", message: Message):
+        data = self.pending_userbots.pop(message.sender_id, None)
+        if not data:
+            return
+        client: TelegramClient = data["client"]
+        phone = data["phone"]
+        code = message.text.strip()
+        try:
+            await client.sign_in(phone=phone, code=code, phone_code_hash=data["code_hash"])
+        except Exception as exc:  # pylint: disable=broad-except
+            await message.reply(str(exc))
+            await client.disconnect()
+            return
+        me = await client.get_me()
+        session = client.session.save()
+        await client.disconnect()
+        if self.userbot_manager.add_userbot(str(me.id), session):
+            await message.reply(f"Userbot {me.id} added")
+        else:
+            await message.reply("Already running")
 
 
     async def on_message(
@@ -140,6 +181,9 @@ class BotDispatcher:
         if not is_private_message(message):
             return
 
+        if message.sender_id in self.pending_userbots and message.text.isdigit():
+            await self._ubcode_handler(message)
+            return
 
         match self._parse_command(message):
             case [commands.start, *_]:
@@ -187,9 +231,12 @@ class BotDispatcher:
                     for ub in self.userbot_manager.iter_bots():
                         for user in ub.targets.values():
                             if user.search_info == info or str(user.id) == info:
-                                buttons.append([Button.inline("🧑‍🚀 " + user.name, data=user.id)])
+                                buttons.append([Button.inline("🧑‍🚀 " + str(user.id), data=user.id)])
                                 break
-                await query.edit("🗄️ Список отслеживаемых аккаунтов:", buttons=buttons)
+                if buttons:
+                    await query.edit("🗄️ Список отслеживаемых аккаунтов:", buttons=buttons)
+                else:
+                    await query.edit("🗄️ Список отслеживаемых аккаунтов пуст")
                 return
             case "file":
                 await query.edit("📂 Отправляю файл")

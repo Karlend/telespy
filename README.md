@@ -28,7 +28,7 @@ Example output from `online.csv`:
 - Navigate to [Telegram app creation](https://my.telegram.org/apps) and create app
 - Open the .env file inside the telespy folder and change existing settings.
 - Run app with `python3 -m telespy` ( you can add `--log-level INFO` to see more info )
-- Add userbot sessions with `/ubadd <name> <string session>` from an admin account
+- Add userbots with `/ubadd <phone>` from an admin account and send auth code
 
 ### Docker
 
