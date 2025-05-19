@@ -117,6 +117,17 @@ class BotDispatcher:
                 if not ok:
                         return await message.reply(str(acc))
                 await message.reply(f"{acc} теперь отслеживается\nID: <code>{acc.id}</code>")
+        else:
+            user = await self.client.get_entity(args)
+            if not user:
+                return await message.reply("Цель не найдена")
+            if self.userbot_manager:
+                ok, acc = await self.add_account(args, message.sender_id)
+            else:
+                return await message.reply("No userbots")
+            if not ok:
+                return await message.reply(str(acc))
+            await message.reply(f"{acc} теперь отслеживается\nID: <code>{acc.id}</code>")
 
     async def _ubadd_handler(self: "BotDispatcher", message: Message):
         if not is_admin(message.sender_id):
@@ -232,7 +243,7 @@ class BotDispatcher:
                     for ub in self.userbot_manager.iter_bots():
                         for user in ub.targets.values():
                             if user.search_info == info or str(user.id) == info:
-                                buttons.append([Button.inline("🧑‍🚀 " + str(user.id), data=user.id)])
+                                buttons.append([Button.inline("🧑‍🚀 " + str(user.name), data=user.id)])
                                 break
                 if buttons:
                     await query.edit("🗄️ Список отслеживаемых аккаунтов:", buttons=buttons)

@@ -101,8 +101,14 @@ class UserbotManager:
         self.bots: Dict[str, UserDispatcher] = {}
         self.sessions: Dict[str, str] = {}
         self.load_sessions()
+        loop = bot.client.loop
+        loop.create_task(self.async_init())
+        
+    async def async_init(self: "UserbotManager") -> None:
+        """Initialize the userbot manager."""
         for name, session in self.sessions.items():
-            asyncio.ensure_future(self.add_userbot(name, session, save=False))
+            await self.add_userbot(name, session, save=False)
+        await self.load_users()
 
     def load_sessions(self: "UserbotManager") -> None:
         if os.path.exists("userbots.json"):
@@ -199,6 +205,20 @@ class UserbotManager:
             await chosen_bot.create_contact(user.id, user.first_name, user.last_name or "")
         chosen_bot.targets[user.id] = user
         return True, user
+    
+    async def load_users(self: "UserbotManager"):
+        users = config.get_users()
+        for owner in list(users.keys()):  # Create a copy of the keys to avoid modification issues
+            infos = users.get(owner, [])
+            for info in infos:
+                ok, user = await userbot_manager.track(info, int(owner))
+                if not ok or not hasattr(user, "id"):
+                    logger.exception(f"Invalid user - {info} | {user}")
+                    config.del_watch(int(owner), info)  # Modify the dictionary safely
+                    continue
+                logger.info(f"Tracking {user} - {user.id}")
+                await asyncio.sleep(1)
+        logger.info("Loaded all users")
 
 
 userbot_manager = UserbotManager()

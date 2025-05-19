@@ -62,11 +62,22 @@ def init_logging(
 	console_handler.setLevel(level)
 	console_handler.setFormatter(formatter)
 	console_handler.addFilter(RedactingFilter(secret_values))
+	console_handler.stream = open(
+		sys.stdout.fileno(),
+		mode='w', encoding='utf-8',
+		buffering=1
+	)
 
 	file_handler = logging.FileHandler(log_file, mode="a")
 	file_handler.setLevel(logging.DEBUG)
 	file_handler.setFormatter(formatter)
 	file_handler.addFilter(RedactingFilter(secret_values))
+	file_handler.stream = open(
+		log_file,
+		mode="a",
+		encoding="utf-8",
+		buffering=1
+	)
 
 	logging.getLogger().handlers = []
 	logging.getLogger().setLevel(logging.DEBUG)
