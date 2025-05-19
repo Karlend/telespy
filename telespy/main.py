@@ -4,7 +4,7 @@ import asyncio
 
 from telespy.config import Config
 from telespy.dispatcher import bot
-from telespy.userbot import userbot
+from telespy.userbot import userbot_manager
 
 logger = logging.getLogger(__name__)
 config = Config()
@@ -13,7 +13,7 @@ async def load_users():
         users = config.get_users()
         for owner, infos in users.items():
                 for info in infos:
-                        ok, user = await userbot.track(info, int(owner))
+                        ok, user = await userbot_manager.track(info, int(owner))
                         if not ok or not hasattr(user, "id"):
                                 logger.exception(f"Invalid user - {info}")
                                 config.del_watch(int(owner), info)
@@ -23,5 +23,6 @@ async def load_users():
         logger.info("Loaded all users")
 
 def main():
-	userbot.client.loop.create_task(load_users())
-	bot.client.run_until_disconnected()
+        loop = bot.client.loop
+        loop.create_task(load_users())
+        bot.client.run_until_disconnected()
