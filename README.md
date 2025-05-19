@@ -13,6 +13,12 @@ Example output from `online.csv`:
 @user1, 2022-10-06 08:46:27, 80
 ```
 
+## Features
+
+- Multiple users can manage their own watch lists and receive notifications.
+- Inline buttons provide quick file retrieval and account management.
+- Administrators have access to statistics about users and tracked accounts.
+
 
 ## How to run
 
