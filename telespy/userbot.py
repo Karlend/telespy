@@ -1,8 +1,12 @@
 import logging
 import asyncio
+import json
+import os
+import time
 from typing import Dict
 
 from telethon import TelegramClient, events, functions
+from telethon.sessions import StringSession
 from telethon.tl.types import InputPhoneContact, UserStatusRecently
 
 from telespy.config import Config
@@ -20,6 +24,7 @@ class UserDispatcher:
         self.client = client
         self.session_name = name
         self.targets: Dict[int, TrackedUser] = {}
+        self.last_used = 0.0
         self._me = None
         asyncio.ensure_future(self.async_init())
 
@@ -51,10 +56,12 @@ class UserDispatcher:
                 add_phone_privacy_exception=False,
             )
         )
+        self.last_used = time.time()
 
     async def import_contact(self: "UserDispatcher", phone: str) -> None:
         contact = InputPhoneContact(client_id=0, phone=phone, first_name=phone, last_name="")
         await self.client(functions.contacts.ImportContactsRequest([contact]))
+        self.last_used = time.time()
 
     async def untrack(self: "UserDispatcher", user_id: int, watcher: int) -> bool:
         user = self.targets.get(user_id)
@@ -67,6 +74,7 @@ class UserDispatcher:
 
     async def track(self: "UserDispatcher", search_info: str, watcher: int):
         info = await self.client.get_entity(search_info)
+        self.last_used = time.time()
         if not info:
             return False, "Пользователь не найден"
         id = info.id
@@ -91,17 +99,31 @@ class UserbotManager:
 
     def __init__(self: "UserbotManager") -> None:
         self.bots: Dict[str, UserDispatcher] = {}
-        for name in config.get("TRACK_USERBOTS", []):
-            self.add_userbot(name)
+        self.sessions: Dict[str, str] = {}
+        self.load_sessions()
+        for name, session in self.sessions.items():
+            self.add_userbot(name, session, save=False)
 
-    def add_userbot(self: "UserbotManager", name: str) -> bool:
+    def load_sessions(self: "UserbotManager") -> None:
+        if os.path.exists("userbots.json"):
+            with open("userbots.json", "r", encoding="utf-8") as f:
+                self.sessions = json.loads(f.read())
+
+    def save_sessions(self: "UserbotManager") -> None:
+        with open("userbots.json", "w", encoding="utf-8") as f:
+            f.write(json.dumps(self.sessions))
+
+    def add_userbot(self: "UserbotManager", name: str, session: str, save: bool = True) -> bool:
         if name in self.bots:
             return False
-        client = TelegramClient(name, config["TRACK_APP_ID"], config["TRACK_APP_HASH"])
+        client = TelegramClient(StringSession(session), config["TRACK_APP_ID"], config["TRACK_APP_HASH"])
         client.start()
         ub = UserDispatcher(client, name)
         ub.setup_handlers()
         self.bots[name] = ub
+        self.sessions[name] = session
+        if save:
+            self.save_sessions()
         return True
 
     def remove_userbot(self: "UserbotManager", name: str) -> bool:
@@ -110,34 +132,71 @@ class UserbotManager:
             return False
         asyncio.ensure_future(ub.client.disconnect())
         del self.bots[name]
+        if name in self.sessions:
+            del self.sessions[name]
+            self.save_sessions()
         return True
 
     def iter_bots(self: "UserbotManager"):
         return self.bots.values()
 
     def choose_bot(self: "UserbotManager") -> UserDispatcher:
-        return min(self.bots.values(), key=lambda b: len(b.targets))
+        return min(self.bots.values(), key=lambda b: b.last_used)
 
     async def track(self: "UserbotManager", info: str, watcher: int):
-        first = next(iter(self.bots.values()))
-        entity = await first.client.get_entity(info)
+        if not self.bots:
+            return False, "No userbots"
+
+        entity = None
+        request_bot = None
+        for ub in sorted(self.bots.values(), key=lambda b: b.last_used):
+            try:
+                entity = await ub.client.get_entity(info)
+                ub.last_used = time.time()
+                request_bot = ub
+                break
+            except Exception:
+                continue
+
         if not entity:
             return False, "Пользователь не найден"
+
         for ub in self.bots.values():
             user = ub.targets.get(entity.id)
             if user:
                 user.add_watcher(watcher)
                 return True, user
+
+        chosen_bot = request_bot
+        has_contact = entity.contact
+
+        if not has_contact:
+            for ub in self.bots.values():
+                if ub is request_bot:
+                    continue
+                try:
+                    ent = await ub.client.get_entity(entity.id)
+                    ub.last_used = time.time()
+                    if ent.contact:
+                        chosen_bot = ub
+                        has_contact = True
+                        break
+                except Exception:
+                    continue
+
+        if not has_contact:
+            chosen_bot = self.choose_bot()
+
         if not entity.status or isinstance(entity.status, UserStatusRecently):
             return False, "Онлайн скрыт"
-        ub = self.choose_bot()
+
         user = TrackedUser(entity)
         user.search_info = info
-        user.userbot = ub
+        user.userbot = chosen_bot
         user.add_watcher(watcher)
-        if not entity.contact:
-            await ub.create_contact(user.id, user.first_name, user.last_name or "")
-        ub.targets[user.id] = user
+        if not has_contact:
+            await chosen_bot.create_contact(user.id, user.first_name, user.last_name or "")
+        chosen_bot.targets[user.id] = user
         return True, user
 
 

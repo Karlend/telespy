@@ -9,3 +9,4 @@ telespybot.session
 .DS_Store
 users.json
 telespybot.session-journal
+userbots.json

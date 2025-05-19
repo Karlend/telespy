@@ -26,9 +26,9 @@ Example output from `online.csv`:
 - Install [Python3.10](https://www.python.org/downloads/)
 - Install dependencies - `pip3 install -r requirements.txt`.
 - Navigate to [Telegram app creation](https://my.telegram.org/apps) and create app
-- Open the .env file inside the telespy folder and change existing settings. Use `TRACK_USERBOTS` to list session names for userbots
+- Open the .env file inside the telespy folder and change existing settings.
 - Run app with `python3 -m telespy` ( you can add `--log-level INFO` to see more info )
-- Enter your accounts data ( phone number and 2FA code )
+- Add userbot sessions with `/ubadd <name> <string session>` from an admin account
 
 ### Docker
 

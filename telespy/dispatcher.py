@@ -103,10 +103,10 @@ class BotDispatcher:
         if not is_admin(message.sender_id):
             return
         try:
-            name = message.text.split(" ", 1)[1]
-        except IndexError:
-            return await message.reply("Session name required")
-        if self.userbot_manager.add_userbot(name):
+            _, name, session = message.text.split(" ", 2)
+        except ValueError:
+            return await message.reply("Usage: /ubadd <name> <session>")
+        if self.userbot_manager.add_userbot(name, session):
             await message.reply(f"Userbot {name} added")
         else:
             await message.reply("Already running")

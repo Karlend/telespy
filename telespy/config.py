@@ -19,8 +19,7 @@ REQUIRED_CONFIG = {
     "TRACK_BOT_TOKEN": str,
     "TRACK_ADMINS": list[int],
     "TRACK_LOG_FILE": bool,
-    "TRACK_LOG_PM": bool,
-    "TRACK_USERBOTS": list[str]
+    "TRACK_LOG_PM": bool
 }
 
 
