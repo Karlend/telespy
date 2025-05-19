@@ -81,7 +81,7 @@ class Config(Singleton):
 
     def __init__(self: "Config") -> None:
         self.config = {}
-        self.watchers: dict[str, list[str]] = {}
+        self.watchers: dict[str, list[int]] = {}
         self.load_users()
 
     def set_config(self: "Config", config: ParseableMap) -> None:
@@ -107,7 +107,11 @@ class Config(Singleton):
     def load_users(self: "Config"):
         if path.exists("watchers.json"):
             with open("watchers.json", "r") as f:
-                self.watchers = json.loads(f.read())
+                data = json.loads(f.read())
+                self.watchers = {
+                    str(k): [int(x) for x in v]
+                    for k, v in data.items()
+                }
 
     def save_users(self: "Config"):
         with open("watchers.json", "w") as f:
@@ -116,17 +120,17 @@ class Config(Singleton):
     def get_users(self: "Config"):
         return self.watchers
 
-    def get_watchlist(self: "Config", user_id: int) -> list[str]:
+    def get_watchlist(self: "Config", user_id: int) -> list[int]:
         return self.watchers.get(str(user_id), [])
 
-    def add_watch(self: "Config", user_id: int, info: str):
+    def add_watch(self: "Config", user_id: int, info: int):
         lst = self.watchers.setdefault(str(user_id), [])
         if info not in lst:
             lst.append(info)
         self.save_users()
         return lst
 
-    def del_watch(self: "Config", user_id: int, info: str):
+    def del_watch(self: "Config", user_id: int, info: int):
         lst = self.watchers.get(str(user_id), [])
         if info in lst:
             lst.remove(info)

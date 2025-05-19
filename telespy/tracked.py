@@ -38,6 +38,9 @@ class TrackedUser:
     is_online: bool
     online_start: int
     watchers: set[int]
+    username: str | None
+    phone: str | None
+    last_online: datetime | None
 
     def __init__(self, client) -> None:
         self.id = client.id
@@ -50,6 +53,12 @@ class TrackedUser:
         self.link = f"<a href=\"tg://user?id={self.id}\">{self.name}</a>"
         self.is_online = False
         self.watchers = set()
+        self.username = getattr(client, "username", None)
+        self.phone = getattr(client, "phone", None)
+        if hasattr(client.status, "was_online"):
+            self.last_online = client.status.was_online
+        else:
+            self.last_online = None
 
         logger.info("Added account - %s, %s", self.id, self.name)
 
@@ -81,6 +90,7 @@ class TrackedUser:
             return
         self.is_online = False
         now = datetime.now()
+        self.last_online = now
         session_time = int(datetime.timestamp(now) - self.online_start)
         stamp = now.strftime(DATETIME_FORMAT)
         append_file(f"{self.name}, {stamp}, {session_time}")
@@ -89,5 +99,6 @@ class TrackedUser:
             bot.notify_watchers(self.watchers, f"{self.link} went offline. Session time: {session_time}")
         logger.info(text)
 
-    def remove(self) -> None:
+    async def remove(self) -> None:
         del self.userbot.targets[self.id]
+        await self.userbot.delete_contact(self.id)

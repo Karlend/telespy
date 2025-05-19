@@ -26,6 +26,7 @@ class UserDispatcher:
         self.targets: Dict[int, TrackedUser] = {}
         self.last_used = 0.0
         self._me = None
+        self.contacts_created = 0
         asyncio.ensure_future(self.async_init())
 
     async def async_init(self: "UserDispatcher") -> None:
@@ -57,11 +58,19 @@ class UserDispatcher:
             )
         )
         self.last_used = time.time()
+        self.contacts_created += 1
 
     async def import_contact(self: "UserDispatcher", phone: str) -> None:
         contact = InputPhoneContact(client_id=0, phone=phone, first_name=phone, last_name="")
         await self.client(functions.contacts.ImportContactsRequest([contact]))
         self.last_used = time.time()
+
+    async def delete_contact(self: "UserDispatcher", user_id: int) -> None:
+        try:
+            input_user = await self.client.get_input_entity(user_id)
+            await self.client(functions.contacts.DeleteContactsRequest(id=[input_user]))
+        except Exception:
+            pass
 
     async def untrack(self: "UserDispatcher", user_id: int, watcher: int) -> bool:
         user = self.targets.get(user_id)
@@ -69,7 +78,7 @@ class UserDispatcher:
             return False
         user.remove_watcher(watcher)
         if not user.watchers:
-            user.remove()
+            await user.remove()
         return True
 
     async def track(self: "UserDispatcher", search_info: str, watcher: int):
@@ -153,7 +162,6 @@ class UserbotManager:
     async def track(self: "UserbotManager", info: str, watcher: int):
         if not self.bots:
             return False, "No userbots"
-
         entity = None
         request_bot = None
         for ub in sorted(self.bots.values(), key=lambda b: b.last_used):
@@ -174,23 +182,18 @@ class UserbotManager:
                 user.add_watcher(watcher)
                 return True, user
 
-        chosen_bot = request_bot
-        has_contact = entity.contact
+        chosen_bot = None
+        for ub in self.bots.values():
+            try:
+                ent = await ub.client.get_entity(entity.id)
+                ub.last_used = time.time()
+                if ent.contact:
+                    chosen_bot = ub
+                    break
+            except Exception:
+                continue
 
-        if not has_contact:
-            for ub in self.bots.values():
-                if ub is request_bot:
-                    continue
-                try:
-                    ent = await ub.client.get_entity(entity.id)
-                    ub.last_used = time.time()
-                    if ent.contact:
-                        chosen_bot = ub
-                        has_contact = True
-                        break
-                except Exception:
-                    continue
-
+        has_contact = chosen_bot is not None
         if not has_contact:
             chosen_bot = self.choose_bot()
 

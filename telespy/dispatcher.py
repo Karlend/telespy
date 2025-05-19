@@ -9,6 +9,7 @@ from telethon.tl.types import (  # type: ignore
 )
 from telethon.tl.custom import Button
 from telespy.config import Config
+from telespy.tracked import DATETIME_FORMAT
 from types import SimpleNamespace
 from telespy.utils import is_admin, is_private_message, parse_cmd
 
@@ -73,8 +74,6 @@ class BotDispatcher:
         if not self.userbot_manager:
             return False, "No userbots"
         ok, account = await self.userbot_manager.track(info, owner)
-        if ok:
-            config.add_watch(owner, info)
         return ok, account
 
     def setup_handlers(self: "BotDispatcher"):
@@ -116,6 +115,8 @@ class BotDispatcher:
                         return await message.reply("Цель не найдена")
                 if not ok:
                         return await message.reply(str(acc))
+                if ok:
+                    config.add_watch(message.sender_id, acc.id)
                 await message.reply(f"{acc} теперь отслеживается\nID: <code>{acc.id}</code>")
         else:
             user = await self.client.get_entity(args)
@@ -127,6 +128,8 @@ class BotDispatcher:
                 return await message.reply("No userbots")
             if not ok:
                 return await message.reply(str(acc))
+            if ok:
+                config.add_watch(message.sender_id, acc.id)
             await message.reply(f"{acc} теперь отслеживается\nID: <code>{acc.id}</code>")
 
     async def _ubadd_handler(self: "BotDispatcher", message: Message):
@@ -157,8 +160,15 @@ class BotDispatcher:
     async def _ublist_handler(self: "BotDispatcher", message: Message):
         if not is_admin(message.sender_id):
             return
-        names = ", ".join(self.userbot_manager.bots.keys()) or "none"
-        await message.reply(f"Running userbots: {names}")
+        buttons = []
+        for name in self.userbot_manager.bots.keys():
+            buttons.append([Button.inline(name, data=f"ubinfo:{name}")])
+        if not buttons:
+            buttons = [[Button.inline("🔙 Назад", data="back")]]
+            await message.reply("🤖 Юзерботы не запущены", buttons=buttons)
+            return
+        buttons.append([Button.inline("🔙 Назад", data="back")])
+        await message.reply("🤖 Список юзерботов:", buttons=buttons)
 
     async def _ubcode_handler(self: "BotDispatcher", message: Message):
         data = self.pending_userbots.pop(message.sender_id, None)
@@ -242,23 +252,71 @@ class BotDispatcher:
                 for info in watchlist:
                     for ub in self.userbot_manager.iter_bots():
                         for user in ub.targets.values():
-                            if user.search_info == info or str(user.id) == info:
-                                buttons.append([Button.inline("🧑‍🚀 " + str(user.name), data=user.id)])
+                            if user.id == info or user.search_info == info:
+                                buttons.append([Button.inline("🧑‍🚀 " + str(user.name), data=str(user.id))])
                                 break
                 if buttons:
+                    buttons.append([Button.inline("🔙 Назад", data="back")])
                     await query.edit("🗄️ Список отслеживаемых аккаунтов:", buttons=buttons)
                 else:
-                    await query.edit("🗄️ Список отслеживаемых аккаунтов пуст")
+                    await query.edit("🗄️ Список отслеживаемых аккаунтов пуст", buttons=[[Button.inline("🔙 Назад", data="back")]])
                 return
             case "file":
                 await query.edit("📂 Отправляю файл")
                 await client.send_file(query.chat.id, "online.csv")
                 return
-            case "remove":
-                msg = await query.get_message()
-                if not msg:
-                    return await query.edit("Failed to fetch message")
-                id = int(msg.message.split("\n")[1].rsplit(" ", 1)[1])
+            case "back":
+                buttons = [
+                    [Button.inline("📄 Информация", data="info")],
+                    [Button.inline("💁 Аккаунты", data="accounts")],
+                    [Button.inline("📂 Файл", data="file")],
+                ]
+                await query.edit("👋 Добро пожаловать", buttons=buttons)
+                return
+            case data if data.startswith("ubinfo:"):
+                name = data.split(":", 1)[1]
+                ub = self.userbot_manager.bots.get(name)
+                if not ub:
+                    return await query.edit("Userbot not found")
+                me = ub._me
+                username = f"@{me.username}" if me and me.username else "-"
+                text = (
+                    f"🤖 {name}\n"
+                    f"🆔 <code>{me.id if me else '-'}" + "</code>\n"
+                    f"👤 {me.first_name if me else '-'}\n"
+                    f"🔖 {username}\n"
+                    f"📇 {ub.contacts_created}\n"
+                    f"📌 {len(ub.targets)}"
+                )
+                buttons = [
+                    [Button.inline("❌ Удалить", data=f"ubremove:{name}")],
+                    [Button.inline("🔙 Назад", data="ublist")],
+                ]
+                await query.edit(text, buttons=buttons)
+                return
+            case data if data == "ublist":
+                buttons = []
+                for nm in self.userbot_manager.bots.keys():
+                    buttons.append([Button.inline(nm, data=f"ubinfo:{nm}")])
+                if not buttons:
+                    buttons = [[Button.inline("🔙 Назад", data="back")]]
+                    await query.edit("🤖 Юзерботы не запущены", buttons=buttons)
+                else:
+                    buttons.append([Button.inline("🔙 Назад", data="back")])
+                    await query.edit("🤖 Список юзерботов:", buttons=buttons)
+                return
+            case data if data.startswith("ubremove:"):
+                name = data.split(":", 1)[1]
+                if self.userbot_manager.remove_userbot(name):
+                    await query.edit(f"Userbot {name} removed")
+                else:
+                    await query.edit("Userbot not found")
+                return
+            case data if data.startswith("remove:"):
+                try:
+                    id = int(data.split(":", 1)[1])
+                except Exception:
+                    return await query.edit("Invalid")
                 user = None
                 ub = None
                 for bot_inst in self.userbot_manager.iter_bots():
@@ -269,7 +327,7 @@ class BotDispatcher:
                 if not user:
                     return await query.edit("Аккаунт не найден в списке")
                 await ub.untrack(user.id, query.sender_id)
-                config.del_watch(query.sender_id, user.search_info)
+                config.del_watch(query.sender_id, user.id)
                 await query.edit(f"🙄 {user.name} был удален из списка трекинга")
                 return
             case _:
@@ -286,11 +344,20 @@ class BotDispatcher:
                 if not user:
                     await query.edit("User not found")
                     return
-                buttons = [[Button.inline("❌ Удалить", data="remove")]]
+                buttons = [[Button.inline("❌ Удалить", data=f"remove:{user.id}")]]
                 status = "📲 <b>Online</b>" if user.is_online else "📱 <b>Offline</b>"
-                await query.edit(
-                    f"🤵‍♂️ {user.link}\n🪪 <code>{user.id}</code>\n{status}", buttons=buttons
+                username = f"@{user.username}" if user.username else "-"
+                phone = user.phone or "-"
+                last_seen = user.last_online.strftime(DATETIME_FORMAT) if user.last_online else "-"
+                text = (
+                    f"🤵‍♂️ {user.link}\n"
+                    f"🪪 <code>{user.id}</code>\n"
+                    f"🔖 {username}\n"
+                    f"📞 {phone}\n"
+                    f"🕒 {last_seen}\n"
+                    f"{status}"
                 )
+                await query.edit(text, buttons=buttons)
 
 
     def _parse_command(self: "BotDispatcher", message: Message) -> list[str]:
