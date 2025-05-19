@@ -16,7 +16,10 @@ config = Config()
 
 commands = SimpleNamespace(
     start="start",
-    add="add"
+    add="add",
+    ubadd="ubadd",
+    ubremove="ubremove",
+    ublist="ublist"
 )
 
 class BotDispatcher:
@@ -30,28 +33,30 @@ class BotDispatcher:
         client.parse_mode = "html"
         self.client = client
         self._me = None
+        self.userbot_manager = None
         asyncio.ensure_future(self.async_init())
-
+        
     async def async_init(self: "BotDispatcher"):
         """
         Initialize the dispatcher.
         """
         self._me = await self.client.get_me()
 
-        def notify_admins(self: "BotDispatcher", text: str):
-                for id in config["TRACK_ADMINS"]:
-                        asyncio.ensure_future(self.client.send_message(id, text))
+    def notify_admins(self: "BotDispatcher", text: str) -> None:
+        for admin in config["TRACK_ADMINS"]:
+            asyncio.ensure_future(self.client.send_message(admin, text))
 
-        def notify_watchers(self: "BotDispatcher", users: set[int], text: str):
-                for uid in users:
-                        asyncio.ensure_future(self.client.send_message(uid, text))
+    def notify_watchers(self: "BotDispatcher", users: set[int], text: str) -> None:
+        for uid in users:
+            asyncio.ensure_future(self.client.send_message(uid, text))
 
-        async def add_account(self: "BotDispatcher", info: str, owner: int):
-                ok, account = await self.userbot.track(info, owner)
-                if not ok:
-                        return False, account
-                config.add_watch(owner, info)
-                return True, account
+    async def add_account(self: "BotDispatcher", info: str, owner: int):
+        if not self.userbot_manager:
+            return False, "No userbots"
+        ok, account = await self.userbot_manager.track(info, owner)
+        if ok:
+            config.add_watch(owner, info)
+        return ok, account
 
     def setup_handlers(self: "BotDispatcher"):
         """
@@ -81,7 +86,8 @@ class BotDispatcher:
                 phone = args.replace(" ", "")
                 int(phone) # trigger error
                 print("Creating contact")
-                self.userbot.import_contact(phone)
+                if self.userbot_manager:
+                    self.userbot_manager.choose_bot().import_contact(phone)
             except:
                 pass
                 try:
@@ -92,6 +98,36 @@ class BotDispatcher:
                 if not ok:
                         return await message.reply(str(acc))
                 await message.reply(f"{acc} теперь отслеживается\nID: <code>{acc.id}</code>")
+
+    async def _ubadd_handler(self: "BotDispatcher", message: Message):
+        if not is_admin(message.sender_id):
+            return
+        try:
+            name = message.text.split(" ", 1)[1]
+        except IndexError:
+            return await message.reply("Session name required")
+        if self.userbot_manager.add_userbot(name):
+            await message.reply(f"Userbot {name} added")
+        else:
+            await message.reply("Already running")
+
+    async def _ubremove_handler(self: "BotDispatcher", message: Message):
+        if not is_admin(message.sender_id):
+            return
+        try:
+            name = message.text.split(" ", 1)[1]
+        except IndexError:
+            return await message.reply("Session name required")
+        if self.userbot_manager.remove_userbot(name):
+            await message.reply(f"Userbot {name} removed")
+        else:
+            await message.reply("Userbot not found")
+
+    async def _ublist_handler(self: "BotDispatcher", message: Message):
+        if not is_admin(message.sender_id):
+            return
+        names = ", ".join(self.userbot_manager.bots.keys()) or "none"
+        await message.reply(f"Running userbots: {names}")
 
 
     async def on_message(
@@ -111,6 +147,15 @@ class BotDispatcher:
                 return
             case [commands.add, *_]:
                 await self._add_handler(message)
+                return
+            case [commands.ubadd, *_]:
+                await self._ubadd_handler(message)
+                return
+            case [commands.ubremove, *_]:
+                await self._ubremove_handler(message)
+                return
+            case [commands.ublist, *_]:
+                await self._ublist_handler(message)
                 return
 
     async def handle_message(self: "BotDispatcher", event: events.newmessage.NewMessage.Event
@@ -139,10 +184,11 @@ class BotDispatcher:
                 buttons = []
                 watchlist = config.get_watchlist(query.sender_id)
                 for info in watchlist:
-                    for user in self.userbot.targets.values():
-                        if user.search_info == info or str(user.id) == info:
-                            buttons.append([Button.inline("🧑‍🚀 " + user.name, data=user.id)])
-                            break
+                    for ub in self.userbot_manager.iter_bots():
+                        for user in ub.targets.values():
+                            if user.search_info == info or str(user.id) == info:
+                                buttons.append([Button.inline("🧑‍🚀 " + user.name, data=user.id)])
+                                break
                 await query.edit("🗄️ Список отслеживаемых аккаунтов:", buttons=buttons)
                 return
             case "file":
@@ -154,10 +200,16 @@ class BotDispatcher:
                 if not msg:
                     return await query.edit("Failed to fetch message")
                 id = int(msg.message.split("\n")[1].rsplit(" ", 1)[1])
-                user = self.userbot.targets.get(id)
+                user = None
+                ub = None
+                for bot_inst in self.userbot_manager.iter_bots():
+                    if id in bot_inst.targets:
+                        user = bot_inst.targets.get(id)
+                        ub = bot_inst
+                        break
                 if not user:
                     return await query.edit("Аккаунт не найден в списке")
-                await self.userbot.untrack(user.id, query.sender_id)
+                await ub.untrack(user.id, query.sender_id)
                 config.del_watch(query.sender_id, user.search_info)
                 await query.edit(f"🙄 {user.name} был удален из списка трекинга")
                 return
@@ -167,7 +219,11 @@ class BotDispatcher:
                 except Exception:
                     await query.edit("Invalid")
                     return
-                user = self.userbot.targets.get(user_id)
+                user = None
+                for ub in self.userbot_manager.iter_bots():
+                    if user_id in ub.targets:
+                        user = ub.targets[user_id]
+                        break
                 if not user:
                     await query.edit("User not found")
                     return
