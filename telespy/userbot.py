@@ -102,7 +102,7 @@ class UserbotManager:
         self.sessions: Dict[str, str] = {}
         self.load_sessions()
         for name, session in self.sessions.items():
-            self.add_userbot(name, session, save=False)
+            asyncio.ensure_future(self.add_userbot(name, session, save=False))
 
     def load_sessions(self: "UserbotManager") -> None:
         if os.path.exists("userbots.json"):
@@ -113,12 +113,13 @@ class UserbotManager:
         with open("userbots.json", "w", encoding="utf-8") as f:
             f.write(json.dumps(self.sessions))
 
-    def add_userbot(self: "UserbotManager", name: str, session: str, save: bool = True) -> bool:
+    async def add_userbot(self: "UserbotManager", name: str, session: str, save: bool = True) -> bool:
         if name in self.bots:
             return False
         client = TelegramClient(StringSession(session), config["TRACK_APP_ID"], config["TRACK_APP_HASH"])
-        client.start()
+        await client.start()
         ub = UserDispatcher(client, name)
+        await ub.async_init()
         ub.setup_handlers()
         self.bots[name] = ub
         self.sessions[name] = session

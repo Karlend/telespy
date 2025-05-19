@@ -165,7 +165,8 @@ class BotDispatcher:
         me = await client.get_me()
         session = client.session.save()
         await client.disconnect()
-        if self.userbot_manager.add_userbot(str(me.id), session):
+        success = await self.userbot_manager.add_userbot(str(me.id), session)
+        if success:
             await message.reply(f"Userbot {me.id} added")
         else:
             await message.reply("Already running")
