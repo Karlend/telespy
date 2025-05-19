@@ -18,6 +18,7 @@ Example output from `online.csv`:
 - Multiple users can manage their own watch lists and receive notifications.
 - Inline buttons provide quick file retrieval and account management.
 - Administrators have access to statistics about users and tracked accounts.
+- Several userbots can be controlled directly from Telegram.
 
 
 ## How to run
@@ -25,7 +26,7 @@ Example output from `online.csv`:
 - Install [Python3.10](https://www.python.org/downloads/)
 - Install dependencies - `pip3 install -r requirements.txt`.
 - Navigate to [Telegram app creation](https://my.telegram.org/apps) and create app
-- Open the .env file inside the telespy folder and change existing settings
+- Open the .env file inside the telespy folder and change existing settings. Use `TRACK_USERBOTS` to list session names for userbots
 - Run app with `python3 -m telespy` ( you can add `--log-level INFO` to see more info )
 - Enter your accounts data ( phone number and 2FA code )
 

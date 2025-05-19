@@ -1,21 +1,25 @@
 import logging
 import asyncio
+from typing import Dict
+
 from telethon import TelegramClient, events, functions
+from telethon.tl.types import InputPhoneContact, UserStatusRecently
+
 from telespy.config import Config
 from telespy.tracked import TrackedUser
 from telespy.dispatcher import bot
-from telethon.tl.types import InputPhoneContact, UserStatusRecently
 
 logger = logging.getLogger(__name__)
 config = Config()
 
 
 class UserDispatcher:
-    """User dispatcher"""
+    """User dispatcher handling accounts for a single userbot."""
 
-    def __init__(self: "UserDispatcher", client: TelegramClient) -> None:
+    def __init__(self: "UserDispatcher", client: TelegramClient, name: str) -> None:
         self.client = client
-        self.targets: dict[int, TrackedUser] = {}
+        self.session_name = name
+        self.targets: Dict[int, TrackedUser] = {}
         self._me = None
         asyncio.ensure_future(self.async_init())
 
@@ -62,7 +66,7 @@ class UserDispatcher:
         return True
 
     async def track(self: "UserDispatcher", search_info: str, watcher: int):
-        info = await client.get_entity(search_info)
+        info = await self.client.get_entity(search_info)
         if not info:
             return False, "Пользователь не найден"
         id = info.id
@@ -82,14 +86,60 @@ class UserDispatcher:
         return True, user
 
 
-def _create_client() -> TelegramClient:
-    client = TelegramClient("telespy", config["TRACK_APP_ID"], config["TRACK_APP_HASH"])
-    client.start()
-    return client
+class UserbotManager:
+    """Manage multiple userbot instances."""
+
+    def __init__(self: "UserbotManager") -> None:
+        self.bots: Dict[str, UserDispatcher] = {}
+        for name in config.get("TRACK_USERBOTS", []):
+            self.add_userbot(name)
+
+    def add_userbot(self: "UserbotManager", name: str) -> bool:
+        if name in self.bots:
+            return False
+        client = TelegramClient(name, config["TRACK_APP_ID"], config["TRACK_APP_HASH"])
+        client.start()
+        ub = UserDispatcher(client, name)
+        ub.setup_handlers()
+        self.bots[name] = ub
+        return True
+
+    def remove_userbot(self: "UserbotManager", name: str) -> bool:
+        ub = self.bots.get(name)
+        if not ub:
+            return False
+        asyncio.ensure_future(ub.client.disconnect())
+        del self.bots[name]
+        return True
+
+    def iter_bots(self: "UserbotManager"):
+        return self.bots.values()
+
+    def choose_bot(self: "UserbotManager") -> UserDispatcher:
+        return min(self.bots.values(), key=lambda b: len(b.targets))
+
+    async def track(self: "UserbotManager", info: str, watcher: int):
+        first = next(iter(self.bots.values()))
+        entity = await first.client.get_entity(info)
+        if not entity:
+            return False, "Пользователь не найден"
+        for ub in self.bots.values():
+            user = ub.targets.get(entity.id)
+            if user:
+                user.add_watcher(watcher)
+                return True, user
+        if not entity.status or isinstance(entity.status, UserStatusRecently):
+            return False, "Онлайн скрыт"
+        ub = self.choose_bot()
+        user = TrackedUser(entity)
+        user.search_info = info
+        user.userbot = ub
+        user.add_watcher(watcher)
+        if not entity.contact:
+            await ub.create_contact(user.id, user.first_name, user.last_name or "")
+        ub.targets[user.id] = user
+        return True, user
 
 
-client = _create_client()
-userbot = UserDispatcher(client)
-userbot.setup_handlers()
-bot.userbot = userbot
-userbot.bot = bot
+userbot_manager = UserbotManager()
+bot.userbot_manager = userbot_manager
