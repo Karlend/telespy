@@ -3,3 +3,4 @@ pyasn1==0.4.8
 python-dotenv==0.21.0
 rsa==4.9
 Telethon==1.25.2
+matplotlib>=3.5.0

@@ -39,3 +39,12 @@ docker build -t telespy:latest .
 # run telespy
 docker run -it -v $PWD:/app telespy
 ```
+
+## Configuration
+
+The bot uses environment variables defined in `.env`:
+
+- `TRACK_ONLY_ADMINS` – when `true` only administrators can use the bot.
+- `TRACK_GRAPH_ADMINS` – restricts building graphs to admins.
+- `TRACK_CSV_ADMINS` – restricts log file retrieval to admins.
+- `TRACK_NOTIFY_ADMINS` – send online/offline notifications only to admins.

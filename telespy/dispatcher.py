@@ -16,6 +16,7 @@ import os
 import time
 from types import SimpleNamespace
 from telespy.utils import is_admin, is_private_message, parse_cmd
+from telespy.plot import create_plots
 
 logger = logging.getLogger(__name__)
 config = Config()
@@ -38,6 +39,7 @@ class BotDispatcher:
         self._me = None
         self.userbot_manager = None
         self.pending_userbots: dict[int, dict[str, any]] = {}
+        self.pending_plots: dict[int, dict[str, any]] = {}
         self.last_messages = {}
         asyncio.ensure_future(self.async_init())
 
@@ -47,6 +49,7 @@ class BotDispatcher:
         buttons = [
             [Button.inline("❌ Удалить", data=f"remove:{entity.id}")],
             [Button.inline("📄 CSV", data=f"csv:{entity.id}")],
+            [Button.inline("📈 Создать график", data=f"plot:{entity.id}")],
             [Button.inline(notify_text, data=f"toggle:{entity.id}")],
             [Button.inline("🔙 Назад", data="accounts")],
         ]
@@ -90,6 +93,8 @@ class BotDispatcher:
 
     def notify_watchers(self: "BotDispatcher", users: set[int], text: str, id: int = None) -> None:
         for uid in users:
+            if config["TRACK_NOTIFY_ADMINS"] and not is_admin(uid):
+                continue
             asyncio.ensure_future(self.send_or_edit_message(uid, text, id=id))
             
     async def send_or_edit_message(self: "BotDispatcher", user: int, text: str, id: int = None) -> Message:
@@ -121,6 +126,17 @@ class BotDispatcher:
         message = await self.client.send_message(user, text)
         self._update_last_message(user, id, message, text, now)
         return message
+
+    async def _send_plot(self: "BotDispatcher", chat_id: int, user, days: int):
+        uid = user.id
+        try:
+            plots = create_plots(uid, days)
+        except FileNotFoundError:
+            await self.client.send_message(chat_id, "Файл лога не найден")
+            return
+    
+        caption = f"Графики активности за {days} дн.\nПользователь: <a href='tg://user?id={uid}'>{user.name}</a> (<code>{uid}</code>)"
+        await self.client.send_file(chat_id, plots, caption=caption)
 
     async def add_account(self: "BotDispatcher", info: str, owner: int):
         if not self.userbot_manager:
@@ -266,6 +282,9 @@ class BotDispatcher:
         if not is_private_message(message):
             return
 
+        if config["TRACK_ONLY_ADMINS"] and not is_admin(message.sender_id):
+            return
+
         pending = self.pending_userbots.get(message.sender_id)
         if pending:
             stage = pending.get("stage")
@@ -275,6 +294,24 @@ class BotDispatcher:
             if stage == "code" and message.text.isdigit():
                 await self._ubcode_handler(message)
                 return
+
+        pending_plot = self.pending_plots.get(message.sender_id)
+        if pending_plot and pending_plot.get("stage") == "days":
+            if message.text.isdigit():
+                days = int(message.text)
+                uid = pending_plot["uid"]
+                del self.pending_plots[message.sender_id]
+                user = None
+                for ub in self.userbot_manager.iter_bots():
+                    if uid in ub.targets:
+                        user = ub.targets[uid]
+                        break
+                if not user:
+                    return await message.reply("User not found")
+                await self._send_plot(message.chat.id, user, days)
+            else:
+                await message.reply("Введите число")
+            return
 
         match self._parse_command(message):
             case [commands.start, *_]:
@@ -297,6 +334,8 @@ class BotDispatcher:
 
     async def handle_buttons(self: "BotDispatcher", query: events.callbackquery.CallbackQuery):
         """Buttons handler."""
+        if config["TRACK_ONLY_ADMINS"] and not is_admin(query.sender_id):
+            return
         data = query.data.decode("utf-8")
         match data:
             case "info":
@@ -423,7 +462,45 @@ class BotDispatcher:
                 )
                 await self._show_account(user, query.edit, query.sender_id)
                 return
+            case data if data.startswith("plotdays:"):
+                if config["TRACK_GRAPH_ADMINS"] and not is_admin(query.sender_id):
+                    return
+                _, uid, days = data.split(":")
+                user = None
+                for ub in self.userbot_manager.iter_bots():
+                    if int(uid) in ub.targets:
+                        user = ub.targets[int(uid)]
+                        break
+                if not user:
+                    return await query.answer("User not found")
+                await query.answer("Графики строятся")
+                await self._send_plot(query.chat.id, user, int(days))
+                return
+            case data if data.startswith("plotcustom:"):
+                if config["TRACK_GRAPH_ADMINS"] and not is_admin(query.sender_id):
+                    return
+                uid = int(data.split(":", 1)[1])
+                self.pending_plots[query.sender_id] = {"uid": uid, "stage": "days"}
+                await query.edit("Введите количество дней")
+                return
+            case data if data.startswith("plot:"):
+                if config["TRACK_GRAPH_ADMINS"] and not is_admin(query.sender_id):
+                    return
+                uid = int(data.split(":", 1)[1])
+                buttons = [
+                    [Button.inline("📅 1 день", data=f"plotdays:{uid}:1")],
+                    [Button.inline("📆 1 неделя", data=f"plotdays:{uid}:7")],
+                    [Button.inline("🗓️ 1 месяц", data=f"plotdays:{uid}:30")],
+                    [Button.inline("📊 6 месяцев", data=f"plotdays:{uid}:180")],
+                    [Button.inline("📈 1 год", data=f"plotdays:{uid}:365")],
+                    [Button.inline("⚙️ Кастом", data=f"plotcustom:{uid}")],
+                    [Button.inline("🔙 Назад", data=str(uid))],
+                ]
+                await query.edit("Выберите период:", buttons=buttons)
+                return
             case data if data.startswith("csv:"):
+                if config["TRACK_CSV_ADMINS"] and not is_admin(query.sender_id):
+                    return
                 uid = int(data.split(":", 1)[1])
                 file_name = log_path(uid)
                 if not path.exists(file_name):
@@ -435,7 +512,7 @@ class BotDispatcher:
                         user = ub.targets[uid]
                         break
                 if not user:
-                    return await query.answer("User not found") 
+                    return await query.answer("User not found")
                 text = f"Лог онлайна <a href='tg://user?id={user.id}'>{user.name}</a> (<code>{user.id}</code>)"
                 await self.client.send_file(query.chat.id, file_name, caption=text, force_document=True)
                 return
