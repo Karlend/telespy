@@ -43,6 +43,31 @@ class UserDispatcher:
     async def async_init(self: "UserDispatcher") -> None:
         """Initialize the dispatcher."""
         self._me = await self.client.get_me()
+        contacts = await self.client(functions.contacts.GetContactsRequest(hash=0))
+        self.contacts_created = len(contacts.contacts)
+        
+    async def delete_all_contacts(self: "UserDispatcher") -> None:
+        """Delete all contacts."""
+        contacts = await self.client(functions.contacts.GetContactsRequest(hash=0))
+        for contact in contacts.contacts:
+            try:
+                await self.client(functions.contacts.DeleteContactsRequest(id=[contact.user_id]))
+            except Exception:
+                logger.exception("Failed to delete contact %s", contact.user_id)
+                continue
+            await asyncio.sleep(1)
+        self.contacts_created = 0
+        await self.create_tracked_contracts()
+        
+    async def create_tracked_contracts(self: "UserDispatcher") -> None:
+        """Create tracked contacts."""
+        for user in self.targets.values():
+            if not user.contact:
+                try:
+                    await self.create_contact(user.id, user.first_name, user.last_name or "")
+                except Exception:
+                    logger.exception("Failed to create contact for %s", user.id)
+                    continue
 
     def setup_handlers(self: "UserDispatcher") -> None:
         """Setup the handlers."""
@@ -214,12 +239,12 @@ class UserbotManager:
 
         has_contact = chosen_bot is not None
         if not has_contact:
-            chosen_bot = self.choose_bot()
+            chosen_bot = request_bot
 
         if not entity.status or isinstance(entity.status, UserStatusRecently):
             return False, "Онлайн скрыт"
 
-        user = TrackedUser(entity, chosen_bot)
+        user = TrackedUser(entity, self.bot)
         user.search_info = info
         user.userbot = chosen_bot
         user.add_watcher(watcher)

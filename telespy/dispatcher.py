@@ -243,7 +243,10 @@ class BotDispatcher:
                 users = len(config.get_users())
                 admins = len(config["TRACK_ADMINS"])
                 await query.edit(
-                    f"🦹‍♂️ Отслеживаемые пользователи: {users}\n👮 Администраторов: {admins}"
+                    f"🦹‍♂️ Отслеживаемые пользователи: {users}\n👮 Администраторов: {admins}",
+                    buttons=[
+                        [Button.inline("🔙 Назад", data="back")],
+                    ],
                 )
                 return
             case "accounts":
@@ -263,7 +266,7 @@ class BotDispatcher:
                 return
             case "file":
                 await query.edit("📂 Отправляю файл")
-                await client.send_file(query.chat.id, "online.csv")
+                await self.client.send_file(query.chat.id, "online.csv")
                 return
             case "back":
                 buttons = [
@@ -279,17 +282,19 @@ class BotDispatcher:
                 if not ub:
                     return await query.edit("Userbot not found")
                 me = ub._me
+                id = me.id if me else "-"
                 username = f"@{me.username}" if me and me.username else "-"
+                name = f"{me.first_name} {me.last_name}" if me and me.last_name else me.first_name if me else "-"
                 text = (
-                    f"🤖 {name}\n"
-                    f"🆔 <code>{me.id if me else '-'}" + "</code>\n"
-                    f"👤 {me.first_name if me else '-'}\n"
+                    f"🆔 <code>{id}" + "</code>\n"
+                    f"👤 {name}\n"
                     f"🔖 {username}\n"
-                    f"📇 {ub.contacts_created}\n"
-                    f"📌 {len(ub.targets)}"
+                    f"📇 Контаков: <code>{ub.contacts_created}</code>\n"
+                    f"📌 Таргетов: <code>{len(ub.targets)}</code>"
                 )
                 buttons = [
-                    [Button.inline("❌ Удалить", data=f"ubremove:{name}")],
+                    [Button.inline("❌ Удалить", data=f"ubremove:{id}")],
+                    [Button.inline("🗑️ Очистить контакты", data=f"ubclear:{id}")],
                     [Button.inline("🔙 Назад", data="ublist")],
                 ]
                 await query.edit(text, buttons=buttons)
@@ -312,6 +317,13 @@ class BotDispatcher:
                 else:
                     await query.edit("Userbot not found")
                 return
+            case data if data.startswith("ubclear:"):
+                name = data.split(":", 1)[1]
+                ub = self.userbot_manager.bots.get(name)
+                if not ub:
+                    return await query.edit("Userbot not found")
+                await ub.delete_all_contacts()
+                await query.edit(f"Userbot {name} contacts cleared")
             case data if data.startswith("remove:"):
                 try:
                     id = int(data.split(":", 1)[1])
@@ -344,7 +356,10 @@ class BotDispatcher:
                 if not user:
                     await query.edit("User not found")
                     return
-                buttons = [[Button.inline("❌ Удалить", data=f"remove:{user.id}")]]
+                buttons = [
+                    [Button.inline("❌ Удалить", data=f"remove:{user.id}")],
+                    [Button.inline("🔙 Назад", data="accounts")],
+                ]
                 status = "📲 <b>Online</b>" if user.is_online else "📱 <b>Offline</b>"
                 username = f"@{user.username}" if user.username else "-"
                 phone = user.phone or "-"
@@ -360,16 +375,16 @@ class BotDispatcher:
                 await query.edit(text, buttons=buttons)
 
 
-def _parse_command(self: "BotDispatcher", message: Message) -> list[str]:
-        splitted = parse_cmd(message)
-        if splitted[0][0] != "/":
-            return []
-        splitted[0] = splitted[0][1:]
-        if len(splitted) == 0:
-            return []
-        if "@" in splitted[0]:
-            cmd, _, username = splitted[0].partition("@")
-            if username != self._me.username:
+    def _parse_command(self: "BotDispatcher", message: Message) -> list[str]:
+            splitted = parse_cmd(message)
+            if splitted[0][0] != "/":
                 return []
-            splitted[0] = cmd
-        return splitted
+            splitted[0] = splitted[0][1:]
+            if len(splitted) == 0:
+                return []
+            if "@" in splitted[0]:
+                cmd, _, username = splitted[0].partition("@")
+                if username != self._me.username:
+                    return []
+                splitted[0] = cmd
+            return splitted
