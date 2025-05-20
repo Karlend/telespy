@@ -67,6 +67,13 @@ def parse_value(key: str, value: str | None, _type: T) -> T:
                     raise ValueError(f"{ch_key} is not a valid {child_types[0]}")
                 if not isinstance(val, child_types[1]):
                     raise ValueError(f"{val} is not a valid {child_types[1]}")
+    elif base_type is bool:
+        low = value.lower()
+        if low in ("1", "true", "yes", "on"):
+            return True  # type: ignore[return-value]
+        if low in ("0", "false", "no", "off"):
+            return False  # type: ignore[return-value]
+        raise ValueError(f"{key} is not a valid boolean")
     return base_type(value)
 
 
