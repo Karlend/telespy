@@ -267,6 +267,21 @@ class UserbotManager:
                 logger.info(f"Tracking {user} - {user.id}")
                 await asyncio.sleep(1)
         logger.info("Loaded all users")
+
+    def find_user(self: "UserbotManager", user_id: int) -> tuple[TrackedUser | None, UserDispatcher | None]:
+        """Return tracked user and its dispatcher by ``user_id`` if present."""
+        for ub in self.bots.values():
+            if user_id in ub.targets:
+                return ub.targets[user_id], ub
+        return None, None
+
+    def find_user_by_info(self: "UserbotManager", info: int | str) -> TrackedUser | None:
+        """Return tracked user by id or search info."""
+        for ub in self.bots.values():
+            for user in ub.targets.values():
+                if user.id == info or getattr(user, "search_info", None) == info:
+                    return user
+        return None
         
     def get_tracked_users(self: "UserbotManager", user_id: int) -> list[TrackedUser]:
         users = []

@@ -170,47 +170,31 @@ class BotDispatcher:
             await query.edit(f"👋 Добро пожаловать!\n📊 Аккаунтов отслеживается: {len(user_tracked_accounts)}\n🟢 Онлайн: {len(user_tracked_online)}", buttons=buttons)
 
     async def _add_handler(self: "BotDispatcher", message: Message):
-        text = message.text
         try:
-            args = text.split(" ", 1)[1]
-        except:
+            args = message.text.split(" ", 1)[1]
+        except IndexError:
             await message.reply("Введите Имя/Логин/Номер")
             return
-        if args[0] == "+": # phone
-            print("Checking phone")
-            try:
-                phone = args.replace(" ", "")
-                int(phone) # trigger error
-                print("Creating contact")
-                if self.userbot_manager:
-                    self.userbot_manager.choose_bot().import_contact(phone)
-            except:
-                pass
+
+        if args.startswith("+") and self.userbot_manager:
+            phone = args.replace(" ", "")
+            if phone.isdigit():
                 try:
-                        ok, acc = await self.add_account(args, message.sender_id)
-                except Exception as e:
-                        logger.exception(e)
-                        return await message.reply("Цель не найдена")
-                if not ok:
-                        return await message.reply(str(acc))
-                if ok:
-                    config.add_watch(message.sender_id, acc.id)
-                    await self._show_account(acc, message.reply, message.sender_id)
-                else:
-                    await message.reply(str(acc))
+                    self.userbot_manager.choose_bot().import_contact(phone)
+                except Exception:
+                    logger.exception("Failed to import contact")
+
+        try:
+            ok, acc = await self.add_account(args, message.sender_id)
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.exception(exc)
+            return await message.reply("Цель не найдена")
+
+        if ok:
+            config.add_watch(message.sender_id, acc.id)
+            await self._show_account(acc, message.reply, message.sender_id)
         else:
-            user = await self.client.get_entity(args)
-            if not user:
-                return await message.reply("Цель не найдена")
-            if self.userbot_manager:
-                ok, acc = await self.add_account(args, message.sender_id)
-            else:
-                return await message.reply("No userbots")
-            if not ok:
-                return await message.reply(str(acc))
-            if ok:
-                config.add_watch(message.sender_id, acc.id)
-                await self._show_account(acc, message.reply, message.sender_id)
+            await message.reply(str(acc))
 
     async def _ubadd_handler(self: "BotDispatcher", phone: str, owner: int):
         client = TelegramClient(StringSession(), config["TRACK_APP_ID"], config["TRACK_APP_HASH"])
@@ -301,11 +285,7 @@ class BotDispatcher:
                 days = int(message.text)
                 uid = pending_plot["uid"]
                 del self.pending_plots[message.sender_id]
-                user = None
-                for ub in self.userbot_manager.iter_bots():
-                    if uid in ub.targets:
-                        user = ub.targets[uid]
-                        break
+                user, _ = self.userbot_manager.find_user(uid)
                 if not user:
                     return await message.reply("User not found")
                 await self._send_plot(message.chat.id, user, days)
@@ -352,11 +332,9 @@ class BotDispatcher:
                 buttons = []
                 watchlist = config.get_watchlist(query.sender_id)
                 for info in watchlist:
-                    for ub in self.userbot_manager.iter_bots():
-                        for user in ub.targets.values():
-                            if user.id == info or user.search_info == info:
-                                buttons.append([Button.inline("🧑‍🚀 " + str(user.name), data=str(user.id))])
-                                break
+                    user = self.userbot_manager.find_user_by_info(info)
+                    if user:
+                        buttons.append([Button.inline("🧑‍🚀 " + str(user.name), data=str(user.id))])
                 if buttons:
                     buttons.append([Button.inline("🔙 Назад", data="back")])
                     await query.edit("🗄️ Список отслеживаемых аккаунтов:", buttons=buttons)
@@ -448,11 +426,7 @@ class BotDispatcher:
                 return
             case data if data.startswith("toggle:"):
                 uid = int(data.split(":", 1)[1])
-                user = None
-                for ub in self.userbot_manager.iter_bots():
-                    if uid in ub.targets:
-                        user = ub.targets[uid]
-                        break
+                user, _ = self.userbot_manager.find_user(uid)
                 if not user:
                     return await query.edit("User not found")
                 enabled = user.is_notified(query.sender_id)
@@ -466,11 +440,7 @@ class BotDispatcher:
                 if config["TRACK_GRAPH_ADMINS"] and not is_admin(query.sender_id):
                     return
                 _, uid, days = data.split(":")
-                user = None
-                for ub in self.userbot_manager.iter_bots():
-                    if int(uid) in ub.targets:
-                        user = ub.targets[int(uid)]
-                        break
+                user, _ = self.userbot_manager.find_user(int(uid))
                 if not user:
                     return await query.answer("User not found")
                 await query.answer("Графики строятся")
@@ -506,11 +476,7 @@ class BotDispatcher:
                 if not path.exists(file_name):
                     return await query.answer("📥 Лог пустой")
                 await query.answer("📥 Лог отправляется")
-                user = None
-                for ub in self.userbot_manager.iter_bots():
-                    if uid in ub.targets:
-                        user = ub.targets[uid]
-                        break
+                user, _ = self.userbot_manager.find_user(uid)
                 if not user:
                     return await query.answer("User not found")
                 text = f"Лог онлайна <a href='tg://user?id={user.id}'>{user.name}</a> (<code>{user.id}</code>)"
@@ -521,14 +487,8 @@ class BotDispatcher:
                     id = int(data.split(":", 1)[1])
                 except Exception:
                     return await query.edit("Invalid")
-                user = None
-                ub = None
-                for bot_inst in self.userbot_manager.iter_bots():
-                    if id in bot_inst.targets:
-                        user = bot_inst.targets.get(id)
-                        ub = bot_inst
-                        break
-                if not user:
+                user, ub = self.userbot_manager.find_user(id)
+                if not user or not ub:
                     return await query.edit("Аккаунт не найден в списке")
                 await ub.untrack(user.id, query.sender_id)
                 config.del_watch(query.sender_id, user.id)
@@ -540,11 +500,7 @@ class BotDispatcher:
                 except Exception:
                     await query.edit("Invalid")
                     return
-                user = None
-                for ub in self.userbot_manager.iter_bots():
-                    if user_id in ub.targets:
-                        user = ub.targets[user_id]
-                        break
+                user, _ = self.userbot_manager.find_user(user_id)
                 if not user:
                     await query.edit("User not found")
                     return
@@ -553,11 +509,11 @@ class BotDispatcher:
 
     def _parse_command(self: "BotDispatcher", message: Message) -> list[str]:
             splitted = parse_cmd(message)
-            if splitted[0][0] != "/":
+            if not splitted:
+                return []
+            if not splitted[0].startswith("/"):
                 return []
             splitted[0] = splitted[0][1:]
-            if len(splitted) == 0:
-                return []
             if "@" in splitted[0]:
                 cmd, _, username = splitted[0].partition("@")
                 if username != self._me.username:
