@@ -35,6 +35,10 @@ def append_file(user_id: int, text: str) -> None:
     with open(file_name, "a", encoding="utf-8") as f:
         f.write("\n" + text)
 
+def delete_file(user_id: int) -> None:
+    file_name = log_path(user_id)
+    if path.exists(file_name):
+        os.remove(file_name)
 
 def format_duration(seconds: int) -> str:
     hours, rem = divmod(int(seconds), 3600)
@@ -137,3 +141,4 @@ class TrackedUser:
     async def remove(self) -> None:
         del self.userbot.targets[self.id]
         await self.userbot.delete_contact(self.id)
+        delete_file(self.id)
