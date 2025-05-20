@@ -35,6 +35,8 @@ def create_monthly_activity_plot(data: dict, days: int) -> bytes:
     plt.title(f"Total Online Time by Day for last {days} days")
     plt.xticks(range(1, 32))
     plt.ylim(0, 24)  # Set fixed Y-axis limit to 24 hours
+    plt.yticks(range(0, 25))  # Display all hours as numbers
+    plt.grid(axis="y", linestyle="--", alpha=0.7)  # Add horizontal grid lines
 
     # Secondary graph: Activity periods
     plt.subplot(2, 1, 2)
@@ -52,6 +54,8 @@ def create_monthly_activity_plot(data: dict, days: int) -> bytes:
     plt.title(f"Activity Periods by Day for last {days} days")
     plt.xticks(range(1, 32))
     plt.ylim(0, 24)  # Set fixed Y-axis limit to 24 hours
+    plt.yticks(range(0, 25))  # Display all hours as numbers
+    plt.grid(axis="y", linestyle="--", alpha=0.7)  # Add horizontal grid lines
 
     plt.tight_layout()
 
@@ -81,6 +85,8 @@ def create_weekly_activity_plot(data: dict, days: int) -> bytes:
     plt.ylabel("Total Online Hours (max 24)")
     plt.title(f"Total Online Time by Day of Week for last {days} days")
     plt.ylim(0, 24)  # Set fixed Y-axis limit to 24 hours
+    plt.yticks(range(0, 25))  # Display all hours as numbers
+    plt.grid(axis="y", linestyle="--", alpha=0.7)  # Add horizontal grid lines
 
     # Secondary graph: Activity periods
     plt.subplot(2, 1, 2)
@@ -98,6 +104,8 @@ def create_weekly_activity_plot(data: dict, days: int) -> bytes:
     plt.title(f"Activity Periods by Day of Week for last {days} days")
     plt.xticks(range(7), ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
     plt.ylim(0, 24)  # Set fixed Y-axis limit to 24 hours
+    plt.yticks(range(0, 25))  # Display all hours as numbers
+    plt.grid(axis="y", linestyle="--", alpha=0.7)  # Add horizontal grid lines
 
     plt.tight_layout()
 
@@ -125,6 +133,8 @@ def create_daily_activity_plot(data: dict, days: int) -> bytes:
     plt.title(f"Total Online Time by Hour for last {days} days")
     plt.xticks(range(24))
     plt.ylim(0, 24)  # Set fixed Y-axis limit to 24 hours
+    plt.yticks(range(0, 25))  # Display all hours as numbers
+    plt.grid(axis="y", linestyle="--", alpha=0.7)  # Add horizontal grid lines
 
     # Secondary graph: Activity periods
     plt.subplot(2, 1, 2)
@@ -141,6 +151,8 @@ def create_daily_activity_plot(data: dict, days: int) -> bytes:
     plt.title(f"Activity Periods by Hour for last {days} days")
     plt.xticks(range(24))
     plt.ylim(0, 24)  # Set fixed Y-axis limit to 24 hours
+    plt.yticks(range(0, 25))  # Display all hours as numbers
+    plt.grid(axis="y", linestyle="--", alpha=0.7)  # Add horizontal grid lines
 
     plt.tight_layout()
 
