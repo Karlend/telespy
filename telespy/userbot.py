@@ -8,6 +8,7 @@ import time
 from typing import Dict, TYPE_CHECKING
 
 from telethon import TelegramClient, events, functions
+import time
 from telethon.sessions import StringSession
 from telethon.tl.types import InputPhoneContact, UserStatusRecently
 
@@ -113,7 +114,7 @@ class UserDispatcher:
         if not user:
             return False
         user.remove_watcher(watcher)
-        if not user.watchers:
+        if not user.all_watchers:
             await user.remove()
         return True
 

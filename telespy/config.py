@@ -106,7 +106,7 @@ class Config(Singleton):
 
     def load_users(self: "Config"):
         if path.exists("watchers.json"):
-            with open("watchers.json", "r") as f:
+            with open("watchers.json", "r", encoding="utf-8") as f:
                 data = json.loads(f.read())
                 self.watchers = {
                     str(k): [int(x) for x in v]
@@ -114,7 +114,7 @@ class Config(Singleton):
                 }
 
     def save_users(self: "Config"):
-        with open("watchers.json", "w") as f:
+        with open("watchers.json", "w", encoding="utf-8") as f:
             f.write(json.dumps(self.watchers))
 
     def get_users(self: "Config"):

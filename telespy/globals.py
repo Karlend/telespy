@@ -1,1 +1,4 @@
-DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+"""Global constants."""
+
+# Format for date/time displayed to users: hour:minute day:month:year
+DATETIME_FORMAT = "%H:%M %d:%m:%Y"

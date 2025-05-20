@@ -10,6 +10,10 @@ from telethon.tl.types import (  # type: ignore
 from telethon.tl.custom import Button
 from telespy.config import Config
 from telespy.globals import DATETIME_FORMAT
+from telespy.tracked import log_path, LOG_DIR
+from os import path
+import os
+import time
 from types import SimpleNamespace
 from telespy.utils import is_admin, is_private_message, parse_cmd
 
@@ -18,10 +22,7 @@ config = Config()
 
 commands = SimpleNamespace(
     start="start",
-    add="add",
-    ubadd="ubadd",
-    ubremove="ubremove",
-    ublist="ublist"
+    add="add"
 )
 
 class BotDispatcher:
@@ -37,7 +38,31 @@ class BotDispatcher:
         self._me = None
         self.userbot_manager = None
         self.pending_userbots: dict[int, dict[str, any]] = {}
+        self.last_messages = {}
         asyncio.ensure_future(self.async_init())
+
+    async def _show_account(self, entity, event_func, sender_id):
+        is_enabled = entity.is_notified(sender_id) if sender_id else False
+        notify_text = "🔔 Оповещения" if sender_id and is_enabled else "🔕 Оповещения"
+        buttons = [
+            [Button.inline("❌ Удалить", data=f"remove:{entity.id}")],
+            [Button.inline("📄 CSV", data=f"csv:{entity.id}")],
+            [Button.inline(notify_text, data=f"toggle:{entity.id}")],
+            [Button.inline("🔙 Назад", data="accounts")],
+        ]
+        status = "📲 <b>Online</b>" if entity.is_online else "📱 <b>Offline</b>"
+        username = f"@{entity.username}" if entity.username else "-"
+        phone = entity.phone or "-"
+        last_seen = entity.last_online.strftime(DATETIME_FORMAT) if entity.last_online else "-"
+        text = (
+            f"🤵‍♂️ {entity.link}\n"
+            f"🪪 <code>{entity.id}</code>\n"
+            f"🔖 {username}\n"
+            f"📞 {phone}\n"
+            f"🕒 {last_seen}\n"
+            f"{status}"
+        )
+        await event_func(text, buttons=buttons)
         
     async def async_init(self: "BotDispatcher"):
         """
@@ -50,9 +75,6 @@ class BotDispatcher:
         commands_list = [
             types.BotCommand(command="start", description="🙌 Меню"),
             types.BotCommand(command="add", description="➕ Отслеживать"),
-            types.BotCommand(command="ubadd", description="🤖 Добавить юзербот"),
-            types.BotCommand(command="ubremove", description="❌ Удалить юзербот"),
-            types.BotCommand(command="ublist", description="📄 Список юзерботов"),
         ]
         await self.client(
             functions.bots.SetBotCommandsRequest(
@@ -66,9 +88,39 @@ class BotDispatcher:
         for admin in config["TRACK_ADMINS"]:
             asyncio.ensure_future(self.client.send_message(admin, text))
 
-    def notify_watchers(self: "BotDispatcher", users: set[int], text: str) -> None:
+    def notify_watchers(self: "BotDispatcher", users: set[int], text: str, id: int = None) -> None:
         for uid in users:
             asyncio.ensure_future(self.client.send_message(uid, text))
+            
+    async def send_or_edit_message(self: "BotDispatcher", user: int, text: str, id: int = None) -> Message:
+        now = time.time()
+        last_messages = self.last_messages.get(user, {})
+        last_message = last_messages.get(id, {}) if id else {}
+    
+        if id and last_message.get("time", 0) > now - 600:
+            old_text = last_message.get("text")
+            new_text = old_text + "\n" + text
+            try:
+                message = await self.client.edit_message(user, last_message["id"], new_text)
+                text = new_text
+            except Exception:
+                message = await self._send_new_message(user, text, now, id)
+        else:
+            message = await self._send_new_message(user, text, now, id)    
+        return message
+    
+    def _update_last_message(self, user: int, id: int, message: Message, text: str, now: float):
+        if id:
+            self.last_messages.setdefault(user, {})[id] = {
+                "id": message.id,
+                "time": now,
+                "text": text,
+            }
+    
+    async def _send_new_message(self, user: int, text: str, now: float, id: int = None) -> Message:
+        message = await self.client.send_message(user, text)
+        self._update_last_message(user, id, message, text, now)
+        return message
 
     async def add_account(self: "BotDispatcher", info: str, owner: int):
         if not self.userbot_manager:
@@ -87,8 +139,10 @@ class BotDispatcher:
         buttons = [
             [Button.inline("📄 Информация", data="info")],
             [Button.inline("💁 Аккаунты", data="accounts")],
-            [Button.inline("📂 Файл", data="file")]
         ]
+        if is_admin(message.sender_id):
+            buttons.append([Button.inline("🛠️ Управление юзерботами", data="ublist")])
+            buttons.append([Button.inline("📥 Выкачать лог", data="admin_logs")])
         await message.reply("👋 Добро пожаловать", buttons=buttons)
 
     async def _add_handler(self: "BotDispatcher", message: Message):
@@ -117,7 +171,9 @@ class BotDispatcher:
                         return await message.reply(str(acc))
                 if ok:
                     config.add_watch(message.sender_id, acc.id)
-                await message.reply(f"{acc} теперь отслеживается\nID: <code>{acc.id}</code>")
+                    await self._show_account(acc, message.reply, message.sender_id)
+                else:
+                    await message.reply(str(acc))
         else:
             user = await self.client.get_entity(args)
             if not user:
@@ -130,20 +186,19 @@ class BotDispatcher:
                 return await message.reply(str(acc))
             if ok:
                 config.add_watch(message.sender_id, acc.id)
-            await message.reply(f"{acc} теперь отслеживается\nID: <code>{acc.id}</code>")
+                await self._show_account(acc, message.reply, message.sender_id)
 
-    async def _ubadd_handler(self: "BotDispatcher", message: Message):
-        if not is_admin(message.sender_id):
-            return
-        try:
-            _, phone = message.text.split(" ", 1)
-        except ValueError:
-            return await message.reply("Usage: /ubadd &lt;phone&gt;")
+    async def _ubadd_handler(self: "BotDispatcher", phone: str, owner: int):
         client = TelegramClient(StringSession(), config["TRACK_APP_ID"], config["TRACK_APP_HASH"])
         await client.connect()
         code = await client.send_code_request(phone)
-        self.pending_userbots[message.sender_id] = {"client": client, "phone": phone, "code_hash": code.phone_code_hash}
-        await message.reply("📨 Код отправлен, введите его следующим сообщением")
+        self.pending_userbots[owner] = {
+            "client": client,
+            "phone": phone,
+            "code_hash": code.phone_code_hash,
+            "stage": "code",
+        }
+        await self.client.send_message(owner, "📨 Код отправлен, введите его следующим сообщением")
 
     async def _ubremove_handler(self: "BotDispatcher", message: Message):
         if not is_admin(message.sender_id):
@@ -203,9 +258,15 @@ class BotDispatcher:
         if not is_private_message(message):
             return
 
-        if message.sender_id in self.pending_userbots and message.text.isdigit():
-            await self._ubcode_handler(message)
-            return
+        pending = self.pending_userbots.get(message.sender_id)
+        if pending:
+            stage = pending.get("stage")
+            if stage == "phone":
+                await self._ubadd_handler(message.text.strip(), message.sender_id)
+                return
+            if stage == "code" and message.text.isdigit():
+                await self._ubcode_handler(message)
+                return
 
         match self._parse_command(message):
             case [commands.start, *_]:
@@ -213,15 +274,6 @@ class BotDispatcher:
                 return
             case [commands.add, *_]:
                 await self._add_handler(message)
-                return
-            case [commands.ubadd, *_]:
-                await self._ubadd_handler(message)
-                return
-            case [commands.ubremove, *_]:
-                await self._ubremove_handler(message)
-                return
-            case [commands.ublist, *_]:
-                await self._ublist_handler(message)
                 return
 
     async def handle_message(self: "BotDispatcher", event: events.newmessage.NewMessage.Event
@@ -264,16 +316,28 @@ class BotDispatcher:
                 else:
                     await query.edit("🗄️ Список отслеживаемых аккаунтов пуст", buttons=[[Button.inline("🔙 Назад", data="back")]])
                 return
-            case "file":
-                await query.edit("📂 Отправляю файл")
-                await self.client.send_file(query.chat.id, "online.csv")
+            case "admin_logs":
+                if not is_admin(query.sender_id):
+                    return
+                buttons = []
+                if path.exists(LOG_DIR):
+                    for fname in os.listdir(LOG_DIR):
+                        buttons.append([Button.inline(fname, data=f"log:{fname}")])
+                if not buttons:
+                    buttons = [[Button.inline("🔙 Назад", data="back")]]
+                    await query.edit("Логи не найдены", buttons=buttons)
+                else:
+                    buttons.append([Button.inline("🔙 Назад", data="back")])
+                    await query.edit("Доступные логи:", buttons=buttons)
                 return
             case "back":
                 buttons = [
                     [Button.inline("📄 Информация", data="info")],
                     [Button.inline("💁 Аккаунты", data="accounts")],
-                    [Button.inline("📂 Файл", data="file")],
                 ]
+                if is_admin(query.sender_id):
+                    buttons.append([Button.inline("🛠️ Управление юзерботами", data="ublist")])
+                    buttons.append([Button.inline("📥 Выкачать лог", data="admin_logs")])
                 await query.edit("👋 Добро пожаловать", buttons=buttons)
                 return
             case data if data.startswith("ubinfo:"):
@@ -303,12 +367,21 @@ class BotDispatcher:
                 buttons = []
                 for nm in self.userbot_manager.bots.keys():
                     buttons.append([Button.inline(nm, data=f"ubinfo:{nm}")])
-                if not buttons:
-                    buttons = [[Button.inline("🔙 Назад", data="back")]]
-                    await query.edit("🤖 Юзерботы не запущены", buttons=buttons)
+                buttons.append([Button.inline("➕ Добавить", data="ubadd")])
+                if not self.userbot_manager.bots:
+                    await query.edit(
+                        "🤖 Юзерботы не запущены",
+                        buttons=[[Button.inline("🔙 Назад", data="back"),]],
+                    )
                 else:
                     buttons.append([Button.inline("🔙 Назад", data="back")])
                     await query.edit("🤖 Список юзерботов:", buttons=buttons)
+                return
+            case data if data == "ubadd":
+                if not is_admin(query.sender_id):
+                    return
+                self.pending_userbots[query.sender_id] = {"stage": "phone"}
+                await query.edit("Введите номер телефона")
                 return
             case data if data.startswith("ubremove:"):
                 name = data.split(":", 1)[1]
@@ -324,6 +397,38 @@ class BotDispatcher:
                     return await query.edit("Userbot not found")
                 await ub.delete_all_contacts()
                 await query.edit(f"Userbot {name} contacts cleared")
+            case data if data.startswith("log:"):
+                if not is_admin(query.sender_id):
+                    return
+                fname = data.split(":", 1)[1]
+                file_path = path.join(LOG_DIR, fname)
+                if not path.exists(file_path):
+                    return await query.edit("Файл не найден")
+                await self.client.send_file(query.chat.id, file_path)
+                return
+            case data if data.startswith("toggle:"):
+                uid = int(data.split(":", 1)[1])
+                user = None
+                for ub in self.userbot_manager.iter_bots():
+                    if uid in ub.targets:
+                        user = ub.targets[uid]
+                        break
+                if not user:
+                    return await query.edit("User not found")
+                enabled = user.is_notified(query.sender_id)
+                user.set_notify(query.sender_id, not enabled)
+                await query.edit(
+                    "Уведомления " + ("включены" if not enabled else "выключены"),
+                    buttons=[[Button.inline("🔙 Назад", data=str(uid))]],
+                )
+                return
+            case data if data.startswith("csv:"):
+                uid = int(data.split(":", 1)[1])
+                file_name = log_path(uid)
+                if not path.exists(file_name):
+                    return await query.edit("Лог отсутствует", buttons=[[Button.inline("🔙 Назад", data=str(uid))]])
+                await self.client.send_file(query.chat.id, file_name)
+                return
             case data if data.startswith("remove:"):
                 try:
                     id = int(data.split(":", 1)[1])
@@ -356,23 +461,7 @@ class BotDispatcher:
                 if not user:
                     await query.edit("User not found")
                     return
-                buttons = [
-                    [Button.inline("❌ Удалить", data=f"remove:{user.id}")],
-                    [Button.inline("🔙 Назад", data="accounts")],
-                ]
-                status = "📲 <b>Online</b>" if user.is_online else "📱 <b>Offline</b>"
-                username = f"@{user.username}" if user.username else "-"
-                phone = user.phone or "-"
-                last_seen = user.last_online.strftime(DATETIME_FORMAT) if user.last_online else "-"
-                text = (
-                    f"🤵‍♂️ {user.link}\n"
-                    f"🪪 <code>{user.id}</code>\n"
-                    f"🔖 {username}\n"
-                    f"📞 {phone}\n"
-                    f"🕒 {last_seen}\n"
-                    f"{status}"
-                )
-                await query.edit(text, buttons=buttons)
+                await self._show_account(user, query.edit, query.sender_id)
 
 
     def _parse_command(self: "BotDispatcher", message: Message) -> list[str]:
