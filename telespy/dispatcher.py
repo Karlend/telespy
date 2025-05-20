@@ -90,7 +90,7 @@ class BotDispatcher:
 
     def notify_watchers(self: "BotDispatcher", users: set[int], text: str, id: int = None) -> None:
         for uid in users:
-            asyncio.ensure_future(self.client.send_message(uid, text))
+            asyncio.ensure_future(self.send_or_edit_message(uid, text, id=id))
             
     async def send_or_edit_message(self: "BotDispatcher", user: int, text: str, id: int = None) -> Message:
         now = time.time()
@@ -418,17 +418,26 @@ class BotDispatcher:
                     return await query.edit("User not found")
                 enabled = user.is_notified(query.sender_id)
                 user.set_notify(query.sender_id, not enabled)
-                await query.edit(
-                    "Уведомления " + ("включены" if not enabled else "выключены"),
-                    buttons=[[Button.inline("🔙 Назад", data=str(uid))]],
+                await query.answer(
+                    f"🔔 Оповещения {'включены' if not enabled else 'выключены'}"
                 )
+                await self._show_account(user, query.edit, query.sender_id)
                 return
             case data if data.startswith("csv:"):
                 uid = int(data.split(":", 1)[1])
                 file_name = log_path(uid)
                 if not path.exists(file_name):
-                    return await query.edit("Лог отсутствует", buttons=[[Button.inline("🔙 Назад", data=str(uid))]])
-                await self.client.send_file(query.chat.id, file_name)
+                    return await query.answer("📥 Лог пустой")
+                await query.answer("📥 Лог отправляется")
+                user = None
+                for ub in self.userbot_manager.iter_bots():
+                    if uid in ub.targets:
+                        user = ub.targets[uid]
+                        break
+                if not user:
+                    return await query.answer("User not found") 
+                text = f"Лог онлайна <a href='tg://user?id={user.id}'>{user.name}</a> (<code>{user.id}</code>)"
+                await self.client.send_file(query.chat.id, file_name, caption=text, force_document=True)
                 return
             case data if data.startswith("remove:"):
                 try:

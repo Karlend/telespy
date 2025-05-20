@@ -138,10 +138,3 @@ class Config(Singleton):
             del self.watchers[str(user_id)]
         self.save_users()
         return lst
-
-    # Deprecated legacy API
-    def add_user(self: "Config", info):
-        return self.add_watch(0, info)
-
-    def del_user(self: "Config", info):
-        return self.del_watch(0, info)
