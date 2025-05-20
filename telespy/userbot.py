@@ -267,4 +267,12 @@ class UserbotManager:
                 logger.info(f"Tracking {user} - {user.id}")
                 await asyncio.sleep(1)
         logger.info("Loaded all users")
-
+        
+    def get_tracked_users(self: "UserbotManager", user_id: int) -> list[TrackedUser]:
+        users = []
+        for ub in self.bots.values():
+            tracked = ub.targets
+            for user in tracked.values():
+                if user.is_watched(user_id):
+                    users.append(user)
+        return users

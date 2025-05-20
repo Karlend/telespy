@@ -134,16 +134,24 @@ class BotDispatcher:
         """
         self.client.add_event_handler(self.handle_message, events.NewMessage)  # type: ignore
         self.client.add_event_handler(self.handle_buttons, events.CallbackQuery)  # type: ignore
-
-    async def _start_handler(self: "BotDispatcher", message: Message):
+    
+    async def _start_handler(self: "BotDispatcher", message: Message = None, query: events.callbackquery.CallbackQuery = None):
+        sender = message.sender_id if message else query.sender_id
         buttons = [
             [Button.inline("📄 Информация", data="info")],
             [Button.inline("💁 Аккаунты", data="accounts")],
         ]
-        if is_admin(message.sender_id):
+        if is_admin(sender):
             buttons.append([Button.inline("🛠️ Управление юзерботами", data="ublist")])
             buttons.append([Button.inline("📥 Выкачать лог", data="admin_logs")])
-        await message.reply("👋 Добро пожаловать", buttons=buttons)
+        user_tracked_accounts = self.userbot_manager.get_tracked_users(sender)
+        user_tracked_online = [
+            account for account in user_tracked_accounts if account.is_online
+        ]
+        if message:
+            await message.reply(f"👋 Добро пожаловать!\n📊 Аккаунтов отслеживается: {len(user_tracked_accounts)}\n🟢 Онлайн: {len(user_tracked_online)}", buttons=buttons)
+        elif query:
+            await query.edit(f"👋 Добро пожаловать!\n📊 Аккаунтов отслеживается: {len(user_tracked_accounts)}\n🟢 Онлайн: {len(user_tracked_online)}", buttons=buttons)
 
     async def _add_handler(self: "BotDispatcher", message: Message):
         text = message.text
@@ -270,7 +278,7 @@ class BotDispatcher:
 
         match self._parse_command(message):
             case [commands.start, *_]:
-                await self._start_handler(message)
+                await self._start_handler(message=message)
                 return
             case [commands.add, *_]:
                 await self._add_handler(message)
@@ -331,14 +339,7 @@ class BotDispatcher:
                     await query.edit("Доступные логи:", buttons=buttons)
                 return
             case "back":
-                buttons = [
-                    [Button.inline("📄 Информация", data="info")],
-                    [Button.inline("💁 Аккаунты", data="accounts")],
-                ]
-                if is_admin(query.sender_id):
-                    buttons.append([Button.inline("🛠️ Управление юзерботами", data="ublist")])
-                    buttons.append([Button.inline("📥 Выкачать лог", data="admin_logs")])
-                await query.edit("👋 Добро пожаловать", buttons=buttons)
+                await self._start_handler(query=query)
                 return
             case data if data.startswith("ubinfo:"):
                 name = data.split(":", 1)[1]

@@ -105,6 +105,9 @@ class TrackedUser:
             
     def is_notified(self, user_id: int) -> bool:
         return user_id in self.watchers
+    
+    def is_watched(self, user_id: int) -> bool:
+        return user_id in self.all_watchers
 
     def online(self) -> None:
         if self.is_online:
