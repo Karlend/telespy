@@ -1,6 +1,5 @@
 __pycache__/
 telespy.session
-online.csv
 telespy.log
 telespy.session-journal
 telespy/.env
@@ -11,3 +10,4 @@ users.json
 telespybot.session-journal
 userbots.json
 watchers.json
+/online_logs
