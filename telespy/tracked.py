@@ -81,7 +81,6 @@ class TrackedUser:
             self.last_online = client.status.was_online
         else:
             self.last_online = None
-        self.last_message = None
 
         logger.info("Added account - %s, %s", self.id, self.name)
 
