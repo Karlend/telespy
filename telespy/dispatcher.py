@@ -68,12 +68,12 @@ class BotDispatcher:
         notify_text = ("🔔 " if sender_id and is_enabled else "🔕 ") + await self._t(sender_id or 0, "button_notifications")
         buttons = [
             [Button.inline(await self._t(sender_id or 0, "button_remove"), data=f"remove:{entity.id}")],
-            [Button.inline("📄 CSV", data=f"csv:{entity.id}")],
+            [Button.inline(await self._t(sender_id or 0, "csv"), data=f"csv:{entity.id}")],
             [Button.inline(await self._t(sender_id or 0, "button_create_plot"), data=f"plot:{entity.id}")],
             [Button.inline(notify_text, data=f"toggle:{entity.id}")],
             [Button.inline(await self._t(sender_id or 0, "button_back"), data="accounts")],
         ]
-        status = "📲 <b>Online</b>" if entity.is_online else "📱 <b>Offline</b>"
+        status = await self._t(sender_id or 0, "online") if entity.is_online else await self._t(sender_id or 0, "offline")
         username = f"@{entity.username}" if entity.username else "-"
         phone = entity.phone or "-"
         last_seen = entity.last_online.strftime(DATETIME_FORMAT) if entity.last_online else "-"
@@ -96,8 +96,8 @@ class BotDispatcher:
 
     async def _set_commands(self: "BotDispatcher") -> None:
         commands_list = [
-            types.BotCommand(command="start", description="🙌 Меню"),
-            types.BotCommand(command="add", description="➕ Отслеживать"),
+            types.BotCommand(command="start", description=await self._t(0, "commands_start")),
+            types.BotCommand(command="add", description=await self._t(0, "commands_add")),
         ]
         await self.client(
             functions.bots.SetBotCommandsRequest(
@@ -237,11 +237,11 @@ class BotDispatcher:
         try:
             name = message.text.split(" ", 1)[1]
         except IndexError:
-            return await message.reply("Userbot id required")
+            return await message.reply(await self._t(message.sender_id, "userbot_id_required"))
         if self.userbot_manager.remove_userbot(name):
-            await message.reply(f"Userbot {name} removed")
+            await message.reply(await self._t(message.sender_id, "userbot_removed", name=name))
         else:
-            await message.reply("Userbot not found")
+            await message.reply(await self._t(message.sender_id, "userbot_not_found"))
 
     async def _ublist_handler(self: "BotDispatcher", message: Message):
         if not is_admin(message.sender_id):
@@ -274,9 +274,9 @@ class BotDispatcher:
         await client.disconnect()
         success = await self.userbot_manager.add_userbot(str(me.id), session)
         if success:
-            await message.reply(f"Userbot {me.id} added")
+            await message.reply(await self._t(message.sender_id, "userbot_added", id=me.id, name=me.first_name))
         else:
-            await message.reply("Already running")
+            await message.reply(await self._t(message.sender_id, "userbot_already_exists", id=me.id, name=me.first_name))
 
 
     async def on_message(
@@ -310,7 +310,7 @@ class BotDispatcher:
                 del self.pending_plots[message.sender_id]
                 user, _ = self.userbot_manager.find_user(uid)
                 if not user:
-                    return await message.reply("User not found")
+                    return await message.reply(await self._t(message.sender_id, "user_not_found"))
                 await self._send_plot(message.chat.id, user, days)
             else:
                 await message.reply(await self._t(message.sender_id, "enter_days"))
@@ -355,7 +355,8 @@ class BotDispatcher:
                 for info in watchlist:
                     user = self.userbot_manager.find_user_by_info(info)
                     if user:
-                        buttons.append([Button.inline("🧑‍🚀 " + str(user.name), data=str(user.id))])
+                        user_text = await self._t(query.sender_id, "user", name=user.name)
+                        buttons.append([Button.inline(user_text, data=str(user.id))])
                 if buttons:
                     buttons.append([Button.inline(await self._t(query.sender_id, "button_back"), data="back")])
                     await query.edit(await self._t(query.sender_id, "watchlist"), buttons=buttons)
@@ -383,22 +384,24 @@ class BotDispatcher:
                 name = data.split(":", 1)[1]
                 ub = self.userbot_manager.bots.get(name)
                 if not ub:
-                    return await query.edit("Userbot not found")
+                    return await query.edit(await self._t(query.sender_id, "userbot_not_found"))
                 me = ub._me
                 id = me.id if me else "-"
                 username = f"@{me.username}" if me and me.username else "-"
                 name = f"{me.first_name} {me.last_name}" if me and me.last_name else me.first_name if me else "-"
+                contacts_text = await self._t(query.sender_id, "contacts")
+                targets_text = await self._t(query.sender_id, "targets")
                 text = (
                     f"🆔 <code>{id}" + "</code>\n"
                     f"👤 {name}\n"
                     f"🔖 {username}\n"
-                    f"📇 Контаков: <code>{ub.contacts_created}</code>\n"
-                    f"📌 Таргетов: <code>{len(ub.targets)}</code>"
+                    f"{contacts_text}: <code>{ub.contacts_created}</code>\n"
+                    f"{targets_text}: <code>{len(ub.targets)}</code>"
                 )
                 buttons = [
-                    [Button.inline("❌ Удалить", data=f"ubremove:{id}")],
-                    [Button.inline("🗑️ Очистить контакты", data=f"ubclear:{id}")],
-                    [Button.inline("🔙 Назад", data="ublist")],
+                    [Button.inline(await self._t(query.sender_id, "button_remove"), data=f"ubremove:{id}")],
+                    [Button.inline(await self._t(query.sender_id, "button_clear_contacts"), data=f"ubclear:{id}")],
+                    [Button.inline(await self._t(query.sender_id, "button_back"), data="ublist")],
                 ]
                 await query.edit(text, buttons=buttons)
                 return
@@ -406,15 +409,18 @@ class BotDispatcher:
                 buttons = []
                 for nm in self.userbot_manager.bots.keys():
                     buttons.append([Button.inline(nm, data=f"ubinfo:{nm}")])
-                buttons.append([Button.inline("➕ Добавить", data="ubadd")])
+                buttons.append([Button.inline(await self._t(query.sender_id, "ubadd"), data="ubadd")])
                 if not self.userbot_manager.bots:
                     await query.edit(
-                        "🤖 Юзерботы не запущены",
-                        buttons=[[Button.inline("🔙 Назад", data="back"),]],
+                        await self._t(query.sender_id, "no_userbots"),
+                        buttons=[[Button.inline(await self._t(query.sender_id, "button_back"), data="back")]]
                     )
                 else:
-                    buttons.append([Button.inline("🔙 Назад", data="back")])
-                    await query.edit("🤖 Список юзерботов:", buttons=buttons)
+                    buttons.append([Button.inline(await self._t(query.sender_id, "button_back"), data="back")])
+                    await query.edit(
+                        await self._t(query.sender_id, "userbot_list"),
+                        buttons=buttons
+                    )
                 return
             case data if data == "ubadd":
                 if not is_admin(query.sender_id):
@@ -425,17 +431,21 @@ class BotDispatcher:
             case data if data.startswith("ubremove:"):
                 name = data.split(":", 1)[1]
                 if self.userbot_manager.remove_userbot(name):
-                    await query.edit(f"Userbot {name} removed")
+                    await query.edit(
+                        await self._t(query.sender_id, "userbot_removed", name=name)
+                    )
                 else:
-                    await query.edit("Userbot not found")
+                    await query.edit(await self._t(query.sender_id, "userbot_not_found"))
                 return
             case data if data.startswith("ubclear:"):
                 name = data.split(":", 1)[1]
                 ub = self.userbot_manager.bots.get(name)
                 if not ub:
-                    return await query.edit("Userbot not found")
+                    return await query.edit(await self._t(query.sender_id, "userbot_not_found"))
                 await ub.delete_all_contacts()
-                await query.edit(f"Userbot {name} contacts cleared")
+                await query.edit(
+                    await self._t(query.sender_id, "userbot_contacts_cleared", name=name)
+                )
             case data if data.startswith("log:"):
                 if not is_admin(query.sender_id):
                     return
@@ -449,7 +459,7 @@ class BotDispatcher:
                 uid = int(data.split(":", 1)[1])
                 user, _ = self.userbot_manager.find_user(uid)
                 if not user:
-                    return await query.edit("User not found")
+                    return await query.edit(await self._t(query.sender_id, "account_not_found"))
                 enabled = user.is_notified(query.sender_id)
                 user.set_notify(query.sender_id, not enabled)
                 await query.answer(
@@ -463,7 +473,7 @@ class BotDispatcher:
                 _, uid, days = data.split(":")
                 user, _ = self.userbot_manager.find_user(int(uid))
                 if not user:
-                    return await query.answer("User not found")
+                    return await query.answer(await self._t(query.sender_id, "user_not_found"))
                 await query.answer(await self._t(query.sender_id, "building_graphs"))
                 await self._send_plot(query.chat.id, user, int(days))
                 return
@@ -479,12 +489,12 @@ class BotDispatcher:
                     return
                 uid = int(data.split(":", 1)[1])
                 buttons = [
-                    [Button.inline("📅 1 день", data=f"plotdays:{uid}:1")],
-                    [Button.inline("📆 1 неделя", data=f"plotdays:{uid}:7")],
-                    [Button.inline("🗓️ 1 месяц", data=f"plotdays:{uid}:30")],
-                    [Button.inline("📊 6 месяцев", data=f"plotdays:{uid}:180")],
-                    [Button.inline("📈 1 год", data=f"plotdays:{uid}:365")],
-                    [Button.inline("⚙️ Кастом", data=f"plotcustom:{uid}")],
+                    [Button.inline(await self._t(query.sender_id, "plot_1d"), data=f"plotdays:{uid}:1")],
+                    [Button.inline(await self._t(query.sender_id, "plot_1w"), data=f"plotdays:{uid}:7")],
+                    [Button.inline(await self._t(query.sender_id, "plot_1m"), data=f"plotdays:{uid}:30")],
+                    [Button.inline(await self._t(query.sender_id, "plot_6m"), data=f"plotdays:{uid}:180")],
+                    [Button.inline(await self._t(query.sender_id, "plot_1y"), data=f"plotdays:{uid}:365")],
+                    [Button.inline(await self._t(query.sender_id, "plot_custom"), data=f"plotcustom:{uid}")],
                     [Button.inline(await self._t(query.sender_id, "button_back"), data=str(uid))],
                 ]
                 await query.edit(await self._t(query.sender_id, "choose_period"), buttons=buttons)
@@ -499,7 +509,7 @@ class BotDispatcher:
                 await query.answer(await self._t(query.sender_id, "log_sending"))
                 user, _ = self.userbot_manager.find_user(uid)
                 if not user:
-                    return await query.answer("User not found")
+                    return await query.answer(await self._t(query.sender_id, "user_not_found"))
                 text = await self._t(query.sender_id, "online_log_caption", uid=user.id, name=user.name)
                 await self.client.send_file(query.chat.id, file_name, caption=text, force_document=True)
                 return
@@ -523,7 +533,7 @@ class BotDispatcher:
                     return
                 user, _ = self.userbot_manager.find_user(user_id)
                 if not user:
-                    await query.edit("User not found")
+                    await query.edit(await self._t(query.sender_id, "user_not_found"))
                     return
                 await self._show_account(user, query.edit, query.sender_id)
 
