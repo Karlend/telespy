@@ -1,7 +1,7 @@
 # telespy
 
 This script allows to track your friends' online status.
-It's using update event from contacts to prevent flood waits for fetching accounts.
+It's uses update event from contacts to prevent flood waits for fetching accounts.
 Example output from `online_logs/user_id.log`:
 
 ```csv
@@ -54,3 +54,5 @@ The bot uses environment variables defined in `.env`:
 - `TRACK_GRAPH_ADMINS` - Restricts the ability to generate graphs to administrators.
 - `TRACK_CSV_ADMINS` - Restricts access to log file downloads (CSV) to administrators.
 - `TRACK_NOTIFY_ADMINS` - Sends online/offline notifications only to administrators.
+- `DEFAULT_LANGUAGE` - Default interface language (e.g. `en`).
+- `USE_USER_LANGUAGE` - When `true`, uses `user.lang_code` if a localization for that language exists or falls back to `DEFAULT_LANGUAGE`.

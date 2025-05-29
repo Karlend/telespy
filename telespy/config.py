@@ -24,6 +24,8 @@ REQUIRED_CONFIG = {
     "TRACK_GRAPH_ADMINS": bool,
     "TRACK_CSV_ADMINS": bool,
     "TRACK_NOTIFY_ADMINS": bool,
+    "DEFAULT_LANGUAGE": str,
+    "USE_USER_LANGUAGE": bool,
 }
 
 

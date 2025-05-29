@@ -122,14 +122,14 @@ class UserDispatcher:
         info = await self.client.get_entity(search_info)
         self.last_used = time.time()
         if not info:
-            return False, "Пользователь не найден"
+            return False, "user_not_found"
         id = info.id
         user = self.targets.get(id)
         if user:
             user.add_watcher(watcher)
             return True, user
         if not info.status or isinstance(info.status, UserStatusRecently):
-            return False, "Онлайн скрыт"
+            return False, "online_hidden"
         user = TrackedUser(info, self.bot)
         user.search_info = search_info
         user.userbot = self
@@ -206,7 +206,7 @@ class UserbotManager:
 
     async def track(self: "UserbotManager", info: str, watcher: int):
         if not self.bots:
-            return False, "No userbots"
+            return False, "no_userbots"
         entity = None
         request_bot = None
         for ub in sorted(self.bots.values(), key=lambda b: b.last_used):
@@ -219,7 +219,7 @@ class UserbotManager:
                 continue
 
         if not entity:
-            return False, "Пользователь не найден"
+            return False, "user_not_found"
 
         for ub in self.bots.values():
             user = ub.targets.get(entity.id)
@@ -243,7 +243,7 @@ class UserbotManager:
             chosen_bot = request_bot
 
         if not entity.status or isinstance(entity.status, UserStatusRecently):
-            return False, "Онлайн скрыт"
+            return False, "online_hidden"
 
         user = TrackedUser(entity, self.bot)
         user.search_info = info

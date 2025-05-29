@@ -17,6 +17,7 @@ import time
 from types import SimpleNamespace
 from telespy.utils import is_admin, is_private_message, parse_cmd
 from telespy.plot import create_plots
+from telespy.localization import localizer
 
 logger = logging.getLogger(__name__)
 config = Config()
@@ -41,17 +42,36 @@ class BotDispatcher:
         self.pending_userbots: dict[int, dict[str, any]] = {}
         self.pending_plots: dict[int, dict[str, any]] = {}
         self.last_messages = {}
+        self._lang_cache: dict[int, str] = {}
         asyncio.ensure_future(self.async_init())
+
+    async def _get_lang(self, user_id: int) -> str:
+        if not config.get("USE_USER_LANGUAGE", True):
+            return config.get("DEFAULT_LANGUAGE", "en")
+        if user_id in self._lang_cache:
+            return self._lang_cache[user_id]
+        try:
+            user = await self.client.get_entity(user_id)
+            lang = getattr(user, "lang_code", None)
+        except Exception:
+            lang = None
+        lang = localizer.resolve_lang(lang)
+        self._lang_cache[user_id] = lang
+        return lang
+
+    async def _t(self, user_id: int, key: str, **kwargs) -> str:
+        lang = await self._get_lang(user_id)
+        return localizer.get(lang, key, **kwargs)
 
     async def _show_account(self, entity, event_func, sender_id):
         is_enabled = entity.is_notified(sender_id) if sender_id else False
-        notify_text = "🔔 Оповещения" if sender_id and is_enabled else "🔕 Оповещения"
+        notify_text = ("🔔 " if sender_id and is_enabled else "🔕 ") + await self._t(sender_id or 0, "button_notifications")
         buttons = [
-            [Button.inline("❌ Удалить", data=f"remove:{entity.id}")],
+            [Button.inline(await self._t(sender_id or 0, "button_remove"), data=f"remove:{entity.id}")],
             [Button.inline("📄 CSV", data=f"csv:{entity.id}")],
-            [Button.inline("📈 Создать график", data=f"plot:{entity.id}")],
+            [Button.inline(await self._t(sender_id or 0, "button_create_plot"), data=f"plot:{entity.id}")],
             [Button.inline(notify_text, data=f"toggle:{entity.id}")],
-            [Button.inline("🔙 Назад", data="accounts")],
+            [Button.inline(await self._t(sender_id or 0, "button_back"), data="accounts")],
         ]
         status = "📲 <b>Online</b>" if entity.is_online else "📱 <b>Offline</b>"
         username = f"@{entity.username}" if entity.username else "-"
@@ -132,10 +152,10 @@ class BotDispatcher:
         try:
             plots = create_plots(uid, days)
         except FileNotFoundError:
-            await self.client.send_message(chat_id, "Файл лога не найден")
+            await self.client.send_message(chat_id, await self._t(chat_id, "log_file_not_found"))
             return
-    
-        caption = f"Графики активности за {days} дн.\nПользователь: <a href='tg://user?id={uid}'>{user.name}</a> (<code>{uid}</code>)"
+
+        caption = await self._t(chat_id, "plot_caption", days=days, uid=uid, name=user.name)
         await self.client.send_file(chat_id, plots, caption=caption)
 
     async def add_account(self: "BotDispatcher", info: str, owner: int):
@@ -154,26 +174,26 @@ class BotDispatcher:
     async def _start_handler(self: "BotDispatcher", message: Message = None, query: events.callbackquery.CallbackQuery = None):
         sender = message.sender_id if message else query.sender_id
         buttons = [
-            [Button.inline("📄 Информация", data="info")],
-            [Button.inline("💁 Аккаунты", data="accounts")],
+            [Button.inline(await self._t(sender, "button_info"), data="info")],
+            [Button.inline(await self._t(sender, "button_accounts"), data="accounts")],
         ]
         if is_admin(sender):
-            buttons.append([Button.inline("🛠️ Управление юзерботами", data="ublist")])
-            buttons.append([Button.inline("📥 Выкачать лог", data="admin_logs")])
+            buttons.append([Button.inline(await self._t(sender, "button_manage_bots"), data="ublist")])
+            buttons.append([Button.inline(await self._t(sender, "button_download_log"), data="admin_logs")])
         user_tracked_accounts = self.userbot_manager.get_tracked_users(sender)
         user_tracked_online = [
             account for account in user_tracked_accounts if account.is_online
         ]
         if message:
-            await message.reply(f"👋 Добро пожаловать!\n📊 Аккаунтов отслеживается: {len(user_tracked_accounts)}\n🟢 Онлайн: {len(user_tracked_online)}", buttons=buttons)
+            await message.reply(await self._t(sender, "welcome", tracked=len(user_tracked_accounts), online=len(user_tracked_online)), buttons=buttons)
         elif query:
-            await query.edit(f"👋 Добро пожаловать!\n📊 Аккаунтов отслеживается: {len(user_tracked_accounts)}\n🟢 Онлайн: {len(user_tracked_online)}", buttons=buttons)
+            await query.edit(await self._t(sender, "welcome", tracked=len(user_tracked_accounts), online=len(user_tracked_online)), buttons=buttons)
 
     async def _add_handler(self: "BotDispatcher", message: Message):
         try:
             args = message.text.split(" ", 1)[1]
         except IndexError:
-            await message.reply("Введите Имя/Логин/Номер")
+            await message.reply(await self._t(message.sender_id, "enter_user"))
             return
 
         if args.startswith("+") and self.userbot_manager:
@@ -188,13 +208,16 @@ class BotDispatcher:
             ok, acc = await self.add_account(args, message.sender_id)
         except Exception as exc:  # pylint: disable=broad-except
             logger.exception(exc)
-            return await message.reply("Цель не найдена")
+            return await message.reply(await self._t(message.sender_id, "target_not_found"))
 
         if ok:
             config.add_watch(message.sender_id, acc.id)
             await self._show_account(acc, message.reply, message.sender_id)
         else:
-            await message.reply(str(acc))
+            if isinstance(acc, str):
+                await message.reply(await self._t(message.sender_id, acc))
+            else:
+                await message.reply(str(acc))
 
     async def _ubadd_handler(self: "BotDispatcher", phone: str, owner: int):
         client = TelegramClient(StringSession(), config["TRACK_APP_ID"], config["TRACK_APP_HASH"])
@@ -206,7 +229,7 @@ class BotDispatcher:
             "code_hash": code.phone_code_hash,
             "stage": "code",
         }
-        await self.client.send_message(owner, "📨 Код отправлен, введите его следующим сообщением")
+        await self.client.send_message(owner, await self._t(owner, "code_sent"))
 
     async def _ubremove_handler(self: "BotDispatcher", message: Message):
         if not is_admin(message.sender_id):
@@ -227,11 +250,11 @@ class BotDispatcher:
         for name in self.userbot_manager.bots.keys():
             buttons.append([Button.inline(name, data=f"ubinfo:{name}")])
         if not buttons:
-            buttons = [[Button.inline("🔙 Назад", data="back")]]
-            await message.reply("🤖 Юзерботы не запущены", buttons=buttons)
+            buttons = [[Button.inline(await self._t(message.sender_id, "button_back"), data="back")]]
+            await message.reply(await self._t(message.sender_id, "userbots_not_running"), buttons=buttons)
             return
-        buttons.append([Button.inline("🔙 Назад", data="back")])
-        await message.reply("🤖 Список юзерботов:", buttons=buttons)
+        buttons.append([Button.inline(await self._t(message.sender_id, "button_back"), data="back")])
+        await message.reply(await self._t(message.sender_id, "userbot_list"), buttons=buttons)
 
     async def _ubcode_handler(self: "BotDispatcher", message: Message):
         data = self.pending_userbots.pop(message.sender_id, None)
@@ -290,7 +313,7 @@ class BotDispatcher:
                     return await message.reply("User not found")
                 await self._send_plot(message.chat.id, user, days)
             else:
-                await message.reply("Введите число")
+                await message.reply(await self._t(message.sender_id, "enter_days"))
             return
 
         match self._parse_command(message):
@@ -322,10 +345,8 @@ class BotDispatcher:
                 users = len(config.get_users())
                 admins = len(config["TRACK_ADMINS"])
                 await query.edit(
-                    f"🦹‍♂️ Отслеживаемые пользователи: {users}\n👮 Администраторов: {admins}",
-                    buttons=[
-                        [Button.inline("🔙 Назад", data="back")],
-                    ],
+                    await self._t(query.sender_id, "stats", users=users, admins=admins),
+                    buttons=[[Button.inline(await self._t(query.sender_id, "button_back"), data="back")]],
                 )
                 return
             case "accounts":
@@ -336,10 +357,10 @@ class BotDispatcher:
                     if user:
                         buttons.append([Button.inline("🧑‍🚀 " + str(user.name), data=str(user.id))])
                 if buttons:
-                    buttons.append([Button.inline("🔙 Назад", data="back")])
-                    await query.edit("🗄️ Список отслеживаемых аккаунтов:", buttons=buttons)
+                    buttons.append([Button.inline(await self._t(query.sender_id, "button_back"), data="back")])
+                    await query.edit(await self._t(query.sender_id, "watchlist"), buttons=buttons)
                 else:
-                    await query.edit("🗄️ Список отслеживаемых аккаунтов пуст", buttons=[[Button.inline("🔙 Назад", data="back")]])
+                    await query.edit(await self._t(query.sender_id, "watchlist_empty"), buttons=[[Button.inline(await self._t(query.sender_id, "button_back"), data="back")]])
                 return
             case "admin_logs":
                 if not is_admin(query.sender_id):
@@ -349,11 +370,11 @@ class BotDispatcher:
                     for fname in os.listdir(LOG_DIR):
                         buttons.append([Button.inline(fname, data=f"log:{fname}")])
                 if not buttons:
-                    buttons = [[Button.inline("🔙 Назад", data="back")]]
-                    await query.edit("Логи не найдены", buttons=buttons)
+                    buttons = [[Button.inline(await self._t(query.sender_id, "button_back"), data="back")]]
+                    await query.edit(await self._t(query.sender_id, "logs_not_found"), buttons=buttons)
                 else:
-                    buttons.append([Button.inline("🔙 Назад", data="back")])
-                    await query.edit("Доступные логи:", buttons=buttons)
+                    buttons.append([Button.inline(await self._t(query.sender_id, "button_back"), data="back")])
+                    await query.edit(await self._t(query.sender_id, "available_logs"), buttons=buttons)
                 return
             case "back":
                 await self._start_handler(query=query)
@@ -399,7 +420,7 @@ class BotDispatcher:
                 if not is_admin(query.sender_id):
                     return
                 self.pending_userbots[query.sender_id] = {"stage": "phone"}
-                await query.edit("Введите номер телефона")
+                await query.edit(await self._t(query.sender_id, "userbot_phone"))
                 return
             case data if data.startswith("ubremove:"):
                 name = data.split(":", 1)[1]
@@ -421,7 +442,7 @@ class BotDispatcher:
                 fname = data.split(":", 1)[1]
                 file_path = path.join(LOG_DIR, fname)
                 if not path.exists(file_path):
-                    return await query.edit("Файл не найден")
+                    return await query.edit(await self._t(query.sender_id, "file_not_found"))
                 await self.client.send_file(query.chat.id, file_path)
                 return
             case data if data.startswith("toggle:"):
@@ -432,7 +453,7 @@ class BotDispatcher:
                 enabled = user.is_notified(query.sender_id)
                 user.set_notify(query.sender_id, not enabled)
                 await query.answer(
-                    f"🔔 Оповещения {'включены' if not enabled else 'выключены'}"
+                    await self._t(query.sender_id, 'notifications_enabled' if not enabled else 'notifications_disabled')
                 )
                 await self._show_account(user, query.edit, query.sender_id)
                 return
@@ -443,7 +464,7 @@ class BotDispatcher:
                 user, _ = self.userbot_manager.find_user(int(uid))
                 if not user:
                     return await query.answer("User not found")
-                await query.answer("Графики строятся")
+                await query.answer(await self._t(query.sender_id, "building_graphs"))
                 await self._send_plot(query.chat.id, user, int(days))
                 return
             case data if data.startswith("plotcustom:"):
@@ -451,7 +472,7 @@ class BotDispatcher:
                     return
                 uid = int(data.split(":", 1)[1])
                 self.pending_plots[query.sender_id] = {"uid": uid, "stage": "days"}
-                await query.edit("Введите количество дней")
+                await query.edit(await self._t(query.sender_id, "enter_days"))
                 return
             case data if data.startswith("plot:"):
                 if config["TRACK_GRAPH_ADMINS"] and not is_admin(query.sender_id):
@@ -464,9 +485,9 @@ class BotDispatcher:
                     [Button.inline("📊 6 месяцев", data=f"plotdays:{uid}:180")],
                     [Button.inline("📈 1 год", data=f"plotdays:{uid}:365")],
                     [Button.inline("⚙️ Кастом", data=f"plotcustom:{uid}")],
-                    [Button.inline("🔙 Назад", data=str(uid))],
+                    [Button.inline(await self._t(query.sender_id, "button_back"), data=str(uid))],
                 ]
-                await query.edit("Выберите период:", buttons=buttons)
+                await query.edit(await self._t(query.sender_id, "choose_period"), buttons=buttons)
                 return
             case data if data.startswith("csv:"):
                 if config["TRACK_CSV_ADMINS"] and not is_admin(query.sender_id):
@@ -474,12 +495,12 @@ class BotDispatcher:
                 uid = int(data.split(":", 1)[1])
                 file_name = log_path(uid)
                 if not path.exists(file_name):
-                    return await query.answer("📥 Лог пустой")
-                await query.answer("📥 Лог отправляется")
+                    return await query.answer(await self._t(query.sender_id, "log_empty"))
+                await query.answer(await self._t(query.sender_id, "log_sending"))
                 user, _ = self.userbot_manager.find_user(uid)
                 if not user:
                     return await query.answer("User not found")
-                text = f"Лог онлайна <a href='tg://user?id={user.id}'>{user.name}</a> (<code>{user.id}</code>)"
+                text = await self._t(query.sender_id, "online_log_caption", uid=user.id, name=user.name)
                 await self.client.send_file(query.chat.id, file_name, caption=text, force_document=True)
                 return
             case data if data.startswith("remove:"):
@@ -489,10 +510,10 @@ class BotDispatcher:
                     return await query.edit("Invalid")
                 user, ub = self.userbot_manager.find_user(id)
                 if not user or not ub:
-                    return await query.edit("Аккаунт не найден в списке")
+                    return await query.edit(await self._t(query.sender_id, "account_not_found"))
                 await ub.untrack(user.id, query.sender_id)
                 config.del_watch(query.sender_id, user.id)
-                await query.edit(f"🙄 {user.name} был удален из списка трекинга")
+                await query.edit(await self._t(query.sender_id, "account_removed", name=user.name))
                 return
             case _:
                 try:
